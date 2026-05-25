@@ -16,9 +16,13 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const user = await db.user.findUnique({
-          where: { email: credentials.email },
-        })
+        let user
+        try {
+          user = await db.user.findUnique({ where: { email: credentials.email } })
+        } catch (err) {
+          console.error('[auth] DB error:', err)
+          return null
+        }
 
         if (!user || !user.isActive) return null
 
