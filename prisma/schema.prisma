@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String             @id @default(cuid())
+  name              String
+  email             String             @unique
+  password          String
+  role              String             @default("VIEWER")
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  comments          WeekComment[]
+  forecastRevisions ForecastRevision[]
+}
+
+model Client {
+  id                String             @id @default(cuid())
+  name              String
+  nameReduced       String
+  nameChart         String?
+  accountManager    String?
+  commercialType    String?
+  pl4Bu             String?
+  entity            String?
+  category          String?
+  categoryBkNv      String?
+  analytics         Boolean            @default(false)
+  modality          String?
+  volumeRef         Float?
+  conexosCode       Int?
+  conexosName       String?
+  isActive          Boolean            @default(true)
+  sortOrder         Int                @default(0)   @unique
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  budgetEntries     BudgetEntry[]
+  actualsNf         ActualNF[]
+  actualsWeekly     ActualWeekly[]
+  comments          WeekComment[]
+  forecastRevisions ForecastRevision[]
+}
+
+model BudgetEntry {
+  id            String   @id @default(cuid())
+  clientId      String
+  year          Int
+  month         Int
+  plan          Float    @default(0)
+  fcMonth       Float?
+  orders        Float?
+  withoutOrders Float?
+  mbPlanPct     Float?
+  mbFcPct       Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, year, month])
+  @@index([year, month])
+}
+
+model ActualNF {
+  id                String   @id @default(cuid())
+  clientId          String?
+  conexosClientCode Int?
+  clientNameRaw     String
+  buName            String?
+  filial            Int?
+  invoiceNumber     String
+  emissionDate      DateTime
+  year              Int
+  month             Int
+  weekOfMonth       Int
+  cfop              String?
+  scope             String?
+  processRef        String?
+  totProduct        Float    @default(0)
+  totNet            Float    @default(0)
+  icms              Float?
+  icmsSt            Float?
+  iss               Float?
+  pis               Float?
+  cofins            Float?
+  ipi               Float?
+  marginLiquid      Float?
+  source            String   @default("API")
+  syncJobId         String?
+  createdAt         DateTime @default(now())
+  client            Client?  @relation(fields: [clientId], references: [id])
+
+  @@unique([invoiceNumber, filial])
+  @@index([year, month, weekOfMonth])
+  @@index([clientId, year, month])
+}
+
+model ActualWeekly {
+  id           String   @id @default(cuid())
+  clientId     String
+  year         Int
+  month        Int
+  weekOfMonth  Int
+  totFaturado  Float    @default(0)
+  totProduct   Float    @default(0)
+  icms         Float?
+  pis          Float?
+  cofins       Float?
+  ipi          Float?
+  marginLiquid Float?
+  updatedAt    DateTime @updatedAt
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, year, month, weekOfMonth])
+  @@index([year, month])
+}
+
+model ForecastRevision {
+  id        String   @id @default(cuid())
+  clientId  String
+  year      Int
+  month     Int
+  field     String
+  oldValue  Float?
+  newValue  Float
+  comment   String
+  userId    String
+  createdAt DateTime @default(now())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([clientId, year, month])
+}
+
+model WeekComment {
+  id          String   @id @default(cuid())
+  clientId    String
+  year        Int
+  month       Int
+  weekOfMonth Int?
+  comment     String
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([clientId, year, month])
+}
+
+model SyncJob {
+  id             String    @id @default(cuid())
+  status         String    @default("RUNNING")
+  recordsTotal   Int       @default(0)
+  recordsNew     Int       @default(0)
+  recordsUpdated Int       @default(0)
+  errors         String?
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  triggeredBy    String?
+}
