@@ -82,7 +82,15 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
             <ChevronDown className="w-3 h-3 opacity-40" style={{ color: '#414042' }} />
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuContent
+            align="end"
+            className="w-52"
+            style={{
+              background: '#ffffff',
+              border: '1px solid rgba(66,44,118,0.12)',
+              boxShadow: '0 8px 24px rgba(66,44,118,0.12)',
+            }}
+          >
             <div className="px-3 py-2.5">
               <p className="text-sm font-semibold truncate" style={{ color: '#414042' }}>
                 {session?.user?.name}
