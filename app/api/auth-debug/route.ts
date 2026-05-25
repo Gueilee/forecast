@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@libsql/client'
 import bcrypt from 'bcryptjs'
+import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,24 @@ export async function GET() {
     result.passwordTest = passwordOk ? 'CORRETA ✓' : 'INCORRETA ✗'
   } catch (e) {
     result.db = { status: 'error', message: (e as Error).message }
+  }
+
+  // Test via Prisma (what the login actually uses)
+  try {
+    const prismaUser = await db.user.findUnique({
+      where: { email: 'admin@vendemmia.com.br' },
+    })
+    result.prisma = prismaUser
+      ? {
+          status: 'ok',
+          email: prismaUser.email,
+          isActive: prismaUser.isActive,
+          isActiveType: typeof prismaUser.isActive,
+          hashPrefix: prismaUser.password.substring(0, 7),
+        }
+      : { status: 'user not found' }
+  } catch (e) {
+    result.prisma = { status: 'error', message: (e as Error).message }
   }
 
   return NextResponse.json(result)
