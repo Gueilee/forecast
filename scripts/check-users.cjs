@@ -1,0 +1,6 @@
+const { createClient } = require('@libsql/client')
+const path = require('path')
+const src = createClient({ url: `file:${path.resolve(__dirname, '../prisma/dev.db')}` })
+src.execute('SELECT id, name, email, role, isActive FROM "User"')
+  .then(r => { r.rows.forEach(u => console.log(u)); process.exit(0) })
+  .catch(e => { console.error(e.message); process.exit(1) })

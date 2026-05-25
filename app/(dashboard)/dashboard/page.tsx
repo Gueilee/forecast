@@ -11,66 +11,59 @@ const YEAR = 2026
 const CURRENT_MONTH = new Date().getMonth() + 1
 
 async function getDashboardData() {
-  const [budgetTotals, actualTotals, lastSync] = await Promise.all([
+  const [budgetTotals, actualYtd, planYtdAgg, lastSync, monthlyBudget, monthlyActual] = await Promise.all([
+    // Plano e FC anual
     db.budgetEntry.aggregate({
       where: { year: YEAR },
       _sum: { plan: true, fcMonth: true },
     }),
-    db.actualWeekly.aggregate({
-      where: { year: YEAR },
-      _sum: { totFaturado: true, marginLiquid: true },
+    // Faturado YTD real (todas as NFs, não só clientes linkados)
+    db.actualNF.aggregate({
+      where: { year: YEAR, month: { lte: CURRENT_MONTH } },
+      _sum: { totNet: true },
     }),
+    // Plano YTD
+    db.budgetEntry.aggregate({
+      where: { year: YEAR, month: { lte: CURRENT_MONTH } },
+      _sum: { plan: true },
+    }),
+    // Último sync
     db.syncJob.findFirst({
-      where: { status: 'SUCCESS' },
+      where: { status: 'DONE' },
       orderBy: { finishedAt: 'desc' },
+    }),
+    // Plano/FC por mês para o gráfico
+    db.budgetEntry.groupBy({
+      by: ['month'],
+      where: { year: YEAR },
+      _sum: { plan: true, fcMonth: true },
+      orderBy: { month: 'asc' },
+    }),
+    // Faturado por mês (todas as NFs)
+    db.actualNF.groupBy({
+      by: ['month'],
+      where: { year: YEAR },
+      _sum: { totNet: true },
+      orderBy: { month: 'asc' },
     }),
   ])
 
-  const planTotal = budgetTotals._sum.plan ?? 0
-  const fcTotal = budgetTotals._sum.fcMonth ?? planTotal
-  const faturadoYtd = actualTotals._sum.totFaturado ?? 0
-  const marginYtd = actualTotals._sum.marginLiquid ?? 0
-
-  const planYtd = await db.budgetEntry.aggregate({
-    where: { year: YEAR, month: { lte: CURRENT_MONTH } },
-    _sum: { plan: true },
-  })
-  const planYtdValue = planYtd._sum.plan ?? 0
+  const planTotal     = budgetTotals._sum.plan ?? 0
+  const fcTotal       = budgetTotals._sum.fcMonth ?? planTotal
+  const faturadoYtd   = actualYtd._sum.totNet ?? 0
+  const planYtdValue  = planYtdAgg._sum.plan ?? 0
   const atingimentoPct = planYtdValue > 0 ? (faturadoYtd / planYtdValue) * 100 : 0
-  const mbPct = faturadoYtd > 0 ? (marginYtd / faturadoYtd) * 100 : 0
-
-  // Monthly breakdown for chart
-  const monthlyBudget = await db.budgetEntry.groupBy({
-    by: ['month'],
-    where: { year: YEAR },
-    _sum: { plan: true, fcMonth: true },
-    orderBy: { month: 'asc' },
-  })
-
-  const monthlyActual = await db.actualWeekly.groupBy({
-    by: ['month'],
-    where: { year: YEAR },
-    _sum: { totFaturado: true },
-    orderBy: { month: 'asc' },
-  })
 
   const chartData = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1
-    const budget = monthlyBudget.find((b) => b.month === m)
-    const actual = monthlyActual.find((a) => a.month === m)
+    const budget = monthlyBudget.find(b => b.month === m)
+    const actual = monthlyActual.find(a => a.month === m)
     return {
       month: MONTHS[i].substring(0, 3),
-      plano: Math.round((budget?._sum.plan ?? 0) / 1_000_000 * 10) / 10,
-      fc: Math.round(((budget?._sum.fcMonth ?? budget?._sum.plan ?? 0)) / 1_000_000 * 10) / 10,
-      realizado: Math.round((actual?._sum.totFaturado ?? 0) / 1_000_000 * 10) / 10,
+      plano:    Math.round(((budget?._sum.plan    ?? 0)) / 1_000_000 * 10) / 10,
+      fc:       Math.round(((budget?._sum.fcMonth ?? budget?._sum.plan ?? 0)) / 1_000_000 * 10) / 10,
+      realizado: Math.round(((actual?._sum.totNet ?? 0)) / 1_000_000 * 10) / 10,
     }
-  })
-
-  // BU summary
-  const buData = await db.client.groupBy({
-    by: ['entity'],
-    where: { isActive: true, entity: { not: null } },
-    _count: { id: true },
   })
 
   return {
@@ -78,9 +71,8 @@ async function getDashboardData() {
     fcTotal,
     faturadoYtd,
     atingimentoPct,
-    mbPct,
+    mbPct: 0,
     chartData,
-    buData,
     lastSync: lastSync?.finishedAt ?? null,
   }
 }

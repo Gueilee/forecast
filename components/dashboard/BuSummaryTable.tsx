@@ -2,8 +2,8 @@ import { db } from '@/lib/db'
 import { formatMillions, formatPercent } from '@/lib/utils'
 
 const YEAR = 2026
+const CURRENT_MONTH = new Date().getMonth() + 1
 
-// BU accent colors using brand palette
 const BU_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   'VCI':       { color: '#422c76', bg: 'rgba(66,44,118,0.1)',  label: 'VCI' },
   'ARM - GRV': { color: '#ff2f69', bg: 'rgba(255,47,105,0.1)', label: 'ARM GRV' },
@@ -19,24 +19,23 @@ async function getBuData() {
     entities.map(async (entity) => {
       const [budget, actual] = await Promise.all([
         db.budgetEntry.aggregate({
-          where: { year: YEAR, client: { entity } },
+          where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
           _sum: { plan: true, fcMonth: true },
         }),
-        db.actualWeekly.aggregate({
-          where: { year: YEAR, client: { entity } },
-          _sum: { totFaturado: true, marginLiquid: true },
+        // Usa ActualNF.buName para faturado real (captura todas as NFs, não só clientes linkados)
+        db.actualNF.aggregate({
+          where: { year: YEAR, month: { lte: CURRENT_MONTH }, buName: entity },
+          _sum: { totNet: true },
         }),
       ])
 
-      const plan = budget._sum.plan ?? 0
-      const fc = budget._sum.fcMonth ?? plan
-      const faturado = actual._sum.totFaturado ?? 0
-      const margin = actual._sum.marginLiquid ?? 0
-      const desvio = faturado - plan
-      const mbPct = faturado > 0 ? (margin / faturado) * 100 : 0
+      const plan     = budget._sum.plan ?? 0
+      const fc       = budget._sum.fcMonth ?? plan
+      const faturado = actual._sum.totNet ?? 0
+      const desvio   = faturado - plan
       const atingPct = plan > 0 ? (faturado / plan) * 100 : 0
 
-      return { entity, plan, fc, faturado, desvio, mbPct, atingPct }
+      return { entity, plan, fc, faturado, desvio, mbPct: 0, atingPct }
     })
   )
 
@@ -66,7 +65,7 @@ export async function BuSummaryTable() {
 
       <div className="space-y-3">
         {data.map((row) => {
-          const cfg = BU_CONFIG[row.entity] ?? { color: '#422c76', bg: 'rgba(66,44,118,0.1)', label: row.entity }
+          const cfg      = BU_CONFIG[row.entity] ?? { color: '#422c76', bg: 'rgba(66,44,118,0.1)', label: row.entity }
           const barColor = row.atingPct >= 100 ? '#01E18E' : row.atingPct >= 80 ? '#f59e0b' : '#ff2f69'
           const pctColor = row.atingPct >= 100 ? '#01E18E' : row.atingPct >= 80 ? '#f59e0b' : '#ff2f69'
 
@@ -81,18 +80,13 @@ export async function BuSummaryTable() {
               }}
             >
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                    style={{ background: cfg.bg, color: cfg.color }}
-                  >
-                    {cfg.label}
-                  </span>
-                </div>
                 <span
-                  className="text-sm font-bold tabular-nums"
-                  style={{ color: pctColor }}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: cfg.bg, color: cfg.color }}
                 >
+                  {cfg.label}
+                </span>
+                <span className="text-sm font-bold tabular-nums" style={{ color: pctColor }}>
                   {formatPercent(row.atingPct)}
                 </span>
               </div>
@@ -102,26 +96,16 @@ export async function BuSummaryTable() {
                 <span>Fat: <strong style={{ color: '#414042' }}>{formatMillions(row.faturado)}</strong></span>
               </div>
 
-              {/* Progress bar */}
-              <div
-                className="h-1.5 rounded-full overflow-hidden"
-                style={{ background: 'rgba(66,44,118,0.1)' }}
-              >
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(66,44,118,0.1)' }}>
                 <div
                   className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${Math.min(row.atingPct, 100)}%`,
-                    background: barColor,
-                  }}
+                  style={{ width: `${Math.min(row.atingPct, 100)}%`, background: barColor }}
                 />
               </div>
 
               <div className="flex items-center justify-between mt-1.5 text-[10px]" style={{ color: '#9a8fb5' }}>
-                <span>MB: {formatPercent(row.mbPct)}</span>
-                <span
-                  className="font-semibold"
-                  style={{ color: row.desvio >= 0 ? '#01E18E' : '#ff2f69' }}
-                >
+                <span>FC: {formatMillions(row.fc)}</span>
+                <span className="font-semibold" style={{ color: row.desvio >= 0 ? '#01E18E' : '#ff2f69' }}>
                   {row.desvio >= 0 ? '+' : ''}{formatMillions(row.desvio)}
                 </span>
               </div>
