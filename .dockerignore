@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.local
+.env*.local
+node_modules
+.next
+prisma/*.db
+prisma/*.db-shm
+prisma/*.db-wal
+*.log
+.DS_Store
+README.md
+scripts/export-*.cjs
+scripts/read-*.cjs

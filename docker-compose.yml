@@ -1,0 +1,57 @@
+version: '3.8'
+
+# ─── Forecast by Vendemmia — Stack Portainer ───────────────────────────────────
+# Copie este arquivo no Portainer > Stacks > Add Stack > Web editor
+# Configure as variáveis de ambiente no arquivo .env do servidor Azure
+# ───────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── App Next.js ──────────────────────────────────────────────────────────────
+  app:
+    image: ${REGISTRY:-ghcr.io/gueilee}/forecast-app:${TAG:-latest}
+    container_name: forecast-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      # Turso
+      TURSO_DATABASE_URL: ${TURSO_DATABASE_URL}
+      TURSO_AUTH_TOKEN:   ${TURSO_AUTH_TOKEN}
+      # Auth
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL:    ${NEXTAUTH_URL}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Sync daemon (Oracle → Turso) ─────────────────────────────────────────────
+  # Este container usa o IP fixo do servidor Azure para conectar ao Conexos Oracle
+  sync:
+    image: ${REGISTRY:-ghcr.io/gueilee}/forecast-sync:${TAG:-latest}
+    container_name: forecast-sync
+    restart: unless-stopped
+    environment:
+      # Turso
+      TURSO_URL:   ${TURSO_DATABASE_URL}
+      TURSO_TOKEN: ${TURSO_AUTH_TOKEN}
+      # Oracle / Conexos — IP deste servidor deve estar whitelistado no Conexos
+      ORACLE_USER:       ${CONEXOS_USER}
+      ORACLE_PASSWORD:   ${CONEXOS_PASSWORD}
+      ORACLE_CONNECTION: ${CONEXOS_HOST}:${CONEXOS_PORT}/${CONEXOS_SERVICE}
+      # Sync schedule: horários de execução separados por vírgula (padrão: 6h e 18h)
+      SYNC_HOURS: ${SYNC_HOURS:-6,18}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,11 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Somente as dependências necessárias para o sync
+COPY package*.json ./
+RUN npm install --omit=dev @libsql/client oracledb
+
+COPY scripts/sync-nf.cjs     ./scripts/
+COPY scripts/sync-daemon.cjs ./scripts/
+
+CMD ["node", "scripts/sync-daemon.cjs"]

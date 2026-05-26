@@ -21,13 +21,13 @@ const { createClient } = require('@libsql/client')
 const { randomUUID } = require('crypto')
 const createId = () => randomUUID().replace(/-/g, '').substring(0, 25)
 
-const TURSO_URL   = 'libsql://forecast-gueilee.aws-us-east-1.turso.io'
-const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzk2Nzk0NzYsImlkIjoiMDE5ZTVkMTEtZGMwMS03M2JjLWIyOTgtODFjOWM3NjkwY2M5IiwicmlkIjoiNGY0MDU0ZDQtYzliNS00MjljLTk5NjktNzg4NjY0YjZmYWM3In0.2_yL5h_ExuVFtIGcRf9b3j8HTLcmqm5-AbMO5m2mryR-C9jBCvpCaj0HURaspduQpf4BsX00E0O1QCjJOd1VBQ'
+const TURSO_URL   = process.env.TURSO_URL   || 'libsql://forecast-gueilee.aws-us-east-1.turso.io'
+const TURSO_TOKEN = process.env.TURSO_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzk2Nzk0NzYsImlkIjoiMDE5ZTVkMTEtZGMwMS03M2JjLWIyOTgtODFjOWM3NjkwY2M5IiwicmlkIjoiNGY0MDU0ZDQtYzliNS00MjljLTk5NjktNzg4NjY0YjZmYWM3In0.2_yL5h_ExuVFtIGcRf9b3j8HTLcmqm5-AbMO5m2mryR-C9jBCvpCaj0HURaspduQpf4BsX00E0O1QCjJOd1VBQ'
 
 const ORACLE_CONFIG = {
-  user:          'CNXBI_VENDEMMIA',
-  password:      'BYBD3DBITDJY',
-  connectString: 'rds-vendemmia-uydge.conexos.cloud:15003/CONEXOS',
+  user:          process.env.ORACLE_USER       || 'CNXBI_VENDEMMIA',
+  password:      process.env.ORACLE_PASSWORD   || 'BYBD3DBITDJY',
+  connectString: process.env.ORACLE_CONNECTION || 'rds-vendemmia-uydge.conexos.cloud:15003/CONEXOS',
 }
 
 // Mapeamento filial → BU (conforme mapeamento oficial)
