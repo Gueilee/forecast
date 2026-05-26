@@ -16,6 +16,7 @@ async function getMatrixData(): Promise<MatrixRow[]> {
         modality: true,
         commercialType: true,
         pl4Bu: true,
+        category: true,
         sortOrder: true,
       },
       orderBy: { sortOrder: 'asc' },
@@ -80,6 +81,7 @@ async function getMatrixData(): Promise<MatrixRow[]> {
       modality: c.modality,
       commercialType: c.commercialType,
       pl4Bu: c.pl4Bu,
+      category: c.category,
       months,
     }
   })

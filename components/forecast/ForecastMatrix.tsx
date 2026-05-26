@@ -22,6 +22,7 @@ export type MatrixRow = {
   modality: string | null
   commercialType: string | null
   pl4Bu: string | null
+  category: string | null
   months: Record<number, MonthData>
 }
 
@@ -66,8 +67,8 @@ function pctBg(pct: number | null, hasFat: boolean): string {
 }
 
 // Column widths
-const CW = { name: 168, am: 90, entity: 64, tipo: 72 } as const
-const LEFT_W = CW.name + CW.am + CW.entity + CW.tipo
+const CW = { name: 168, am: 90, entity: 64, tipo: 72, cat: 130 } as const
+const LEFT_W = CW.name + CW.am + CW.entity + CW.tipo + CW.cat
 const MONTH_W = 90
 const EXP_W = [72, 72, 72, 60] as const
 
@@ -120,7 +121,8 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
       if (filterAM !== 'all' && r.accountManager !== filterAM) return false
       if (q && !r.nameReduced.toLowerCase().includes(q) &&
               !r.accountManager?.toLowerCase().includes(q) &&
-              !r.entity?.toLowerCase().includes(q)) return false
+              !r.entity?.toLowerCase().includes(q) &&
+              !r.category?.toLowerCase().includes(q)) return false
       return true
     })
   }, [rows, search, filterEntity, filterAM])
@@ -225,6 +227,7 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
             <col style={{ width: `${CW.am}px` }} />
             <col style={{ width: `${CW.entity}px` }} />
             <col style={{ width: `${CW.tipo}px` }} />
+            <col style={{ width: `${CW.cat}px` }} />
             {MONTHS_ARRAY.flatMap(m =>
               expandedMonths.has(m)
                 ? EXP_W.map((w, i) => <col key={`${m}-${i}`} style={{ width: `${w}px` }} />)
@@ -237,7 +240,7 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
             {/* Group header row */}
             <tr>
               <th
-                colSpan={4}
+                colSpan={5}
                 className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-widest sticky left-0 z-30"
                 style={{
                   background: LILAS,
@@ -333,10 +336,21 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
                   left: `${CW.name + CW.am + CW.entity}px`,
                   background: '#f3f0f9',
                   color: '#6b6570',
-                  borderColor: 'rgba(66,44,118,0.15)',
+                  borderColor: 'rgba(66,44,118,0.1)',
                 }}
               >
                 Tipo
+              </th>
+              <th
+                className="text-left px-2 py-2 text-[11px] font-semibold sticky z-30 border-r"
+                style={{
+                  left: `${CW.name + CW.am + CW.entity + CW.tipo}px`,
+                  background: '#f3f0f9',
+                  color: '#6b6570',
+                  borderColor: 'rgba(66,44,118,0.15)',
+                }}
+              >
+                Categoria
               </th>
               {MONTHS_ARRAY.flatMap(m => {
                 if (expandedMonths.has(m)) {
@@ -374,7 +388,7 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
                   onMouseLeave={e => {
                     const tds = e.currentTarget.querySelectorAll<HTMLTableCellElement>('td')
                     tds.forEach((td, i) => {
-                      if (i < 4) td.style.background = rowBg
+                      if (i < 5) td.style.background = rowBg
                       else td.style.background = ''
                     })
                   }}
@@ -416,10 +430,24 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
                       left: `${CW.name + CW.am + CW.entity}px`,
                       background: rowBg,
                       color: '#9a8fb5',
-                      borderRight: '1px solid rgba(66,44,118,0.1)',
+                      borderRight: '1px solid rgba(66,44,118,0.06)',
                     }}
                   >
                     {row.commercialType ?? '—'}
+                  </td>
+                  {/* Categoria */}
+                  <td
+                    className="px-2 py-2 sticky z-10 truncate text-[10px]"
+                    style={{
+                      left: `${CW.name + CW.am + CW.entity + CW.tipo}px`,
+                      background: rowBg,
+                      color: GRAFITE,
+                      fontWeight: 500,
+                      borderRight: '1px solid rgba(66,44,118,0.12)',
+                    }}
+                    title={row.category ?? ''}
+                  >
+                    {row.category ?? '—'}
                   </td>
 
                   {/* Month cells */}
@@ -489,7 +517,7 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
           <tfoot>
             <tr style={{ background: LILAS, borderTop: `2px solid ${LILAS}` }}>
               <td
-                colSpan={4}
+                colSpan={5}
                 className="px-3 py-2.5 text-[11px] font-bold sticky left-0 z-10 uppercase tracking-wide"
                 style={{ background: LILAS, color: 'rgba(255,255,255,0.7)' }}
               >
