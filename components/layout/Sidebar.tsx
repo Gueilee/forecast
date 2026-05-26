@@ -173,26 +173,49 @@ export function Sidebar() {
         overflow: 'hidden',
       }}
     >
-      {/* Logo */}
+      {/* Logo + toggle */}
       <div
-        className="flex items-center justify-center px-3 py-5 flex-shrink-0"
+        className="flex items-center flex-shrink-0 px-3 py-5 relative"
         style={{ borderBottom: '1px solid rgba(66,44,118,0.08)', minHeight: '72px' }}
       >
-        {collapsed ? (
-          <div
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-white text-xs font-black select-none"
-            style={{ background: '#422c76', letterSpacing: '-0.5px' }}
-          >
-            FC
-          </div>
-        ) : (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src="/logo_v2.png"
-            alt="Forecast by Vendemmia"
-            style={{ width: '160px', height: 'auto', display: 'block' }}
-          />
-        )}
+        <div className="flex-1 flex justify-center">
+          {collapsed ? (
+            <div
+              className="flex items-center justify-center w-8 h-8 rounded-lg text-white text-xs font-black select-none"
+              style={{ background: '#422c76', letterSpacing: '-0.5px' }}
+            >
+              FC
+            </div>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src="/logo_v2.png"
+              alt="Forecast by Vendemmia"
+              style={{ width: '140px', height: 'auto', display: 'block' }}
+            />
+          )}
+        </div>
+
+        {/* Toggle button */}
+        <button
+          onClick={toggle}
+          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+          className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-lg transition-all"
+          style={{ color: 'rgba(66,44,118,0.3)' }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = 'rgba(66,44,118,0.08)'
+            e.currentTarget.style.color = '#422c76'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'rgba(66,44,118,0.3)'
+          }}
+        >
+          {collapsed
+            ? <PanelLeftOpen  className="w-3.5 h-3.5" />
+            : <PanelLeftClose className="w-3.5 h-3.5" />
+          }
+        </button>
       </div>
 
       {/* Navigation */}
@@ -233,35 +256,6 @@ export function Sidebar() {
           )
         })}
       </nav>
-
-      {/* Toggle button */}
-      <div
-        className="px-2 py-2 flex-shrink-0"
-        style={{ borderTop: '1px solid rgba(66,44,118,0.08)' }}
-      >
-        <button
-          onClick={toggle}
-          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-          className="flex items-center justify-center w-full rounded-xl py-2 transition-all"
-          style={{ color: 'rgba(66,44,118,0.4)' }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = 'rgba(66,44,118,0.06)'
-            e.currentTarget.style.color = '#422c76'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = 'rgba(66,44,118,0.4)'
-          }}
-        >
-          {collapsed
-            ? <PanelLeftOpen  className="w-4 h-4" />
-            : <PanelLeftClose className="w-4 h-4" />
-          }
-          {!collapsed && (
-            <span className="ml-2 text-[11px] font-medium">Recolher</span>
-          )}
-        </button>
-      </div>
 
       {/* User info */}
       <div
