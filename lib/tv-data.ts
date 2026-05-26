@@ -25,25 +25,25 @@ export async function getTvData(): Promise<TvData> {
       },
     }),
 
-    // Faturado por mês (todas as NFs, incluindo sem clientId)
+    // Faturado por mês — apenas NFs de SAÍDA
     db.actualNF.groupBy({
       by: ['month'],
-      where: { year: YEAR },
+      where: { year: YEAR, scope: 'SAÍDA' },
       _sum: { totNet: true },
       orderBy: { month: 'asc' },
     }),
 
-    // Faturado por BU+mês (para breakdown por entidade)
+    // Faturado por BU+mês — apenas NFs de SAÍDA
     db.actualNF.groupBy({
       by: ['buName', 'month'],
-      where: { year: YEAR, buName: { not: null } },
+      where: { year: YEAR, buName: { not: null }, scope: 'SAÍDA' },
       _sum: { totNet: true },
     }),
 
-    // Faturado por cliente linkado (para top clientes)
+    // Faturado por cliente linkado — apenas NFs de SAÍDA
     db.actualNF.groupBy({
       by: ['clientId'],
-      where: { year: YEAR, month: { lte: currentMonth }, clientId: { not: null } },
+      where: { year: YEAR, month: { lte: currentMonth }, clientId: { not: null }, scope: 'SAÍDA' },
       _sum: { totNet: true },
       orderBy: { _sum: { totNet: 'desc' } },
     }),

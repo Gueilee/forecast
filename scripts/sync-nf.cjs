@@ -216,16 +216,20 @@ async function main() {
           ],
         })
 
-        const wKey = `${clientId || '_'}|${buName}|${year}|${month}|${wom}`
-        if (!weeklyMap[wKey]) {
-          weeklyMap[wKey] = { clientId, year, month, weekOfMonth: wom, totFaturado: 0, totProduct: 0, icms: 0, pis: 0, cofins: 0, ipi: 0 }
+        // weeklyMap acumula SOMENTE NFs de SAÍDA (faturamento real)
+        const isSaida = !r.TIPO_NF || !String(r.TIPO_NF).startsWith('ENT')
+        if (isSaida) {
+          const wKey = `${clientId || '_'}|${buName}|${year}|${month}|${wom}`
+          if (!weeklyMap[wKey]) {
+            weeklyMap[wKey] = { clientId, year, month, weekOfMonth: wom, totFaturado: 0, totProduct: 0, icms: 0, pis: 0, cofins: 0, ipi: 0 }
+          }
+          weeklyMap[wKey].totFaturado += totNet
+          weeklyMap[wKey].totProduct  += totProd
+          weeklyMap[wKey].icms        += icms
+          weeklyMap[wKey].pis         += pis
+          weeklyMap[wKey].cofins      += cofins
+          weeklyMap[wKey].ipi         += ipi
         }
-        weeklyMap[wKey].totFaturado += totNet
-        weeklyMap[wKey].totProduct  += totProd
-        weeklyMap[wKey].icms        += icms
-        weeklyMap[wKey].pis         += pis
-        weeklyMap[wKey].cofins      += cofins
-        weeklyMap[wKey].ipi         += ipi
       }
 
       const results = await turso.batch(stmts)

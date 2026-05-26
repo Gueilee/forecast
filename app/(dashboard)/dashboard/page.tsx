@@ -17,9 +17,9 @@ async function getDashboardData() {
       where: { year: YEAR },
       _sum: { plan: true, fcMonth: true },
     }),
-    // Faturado YTD real (todas as NFs, não só clientes linkados)
+    // Faturado YTD real — apenas NFs de SAÍDA
     db.actualNF.aggregate({
-      where: { year: YEAR, month: { lte: CURRENT_MONTH } },
+      where: { year: YEAR, month: { lte: CURRENT_MONTH }, scope: 'SAÍDA' },
       _sum: { totNet: true },
     }),
     // Plano YTD
@@ -39,10 +39,10 @@ async function getDashboardData() {
       _sum: { plan: true, fcMonth: true },
       orderBy: { month: 'asc' },
     }),
-    // Faturado por mês (todas as NFs)
+    // Faturado por mês — apenas NFs de SAÍDA
     db.actualNF.groupBy({
       by: ['month'],
-      where: { year: YEAR },
+      where: { year: YEAR, scope: 'SAÍDA' },
       _sum: { totNet: true },
       orderBy: { month: 'asc' },
     }),
