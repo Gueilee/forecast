@@ -1,0 +1,15 @@
+from node:20-alpine
+WORKDIR /app
+
+COPY . .
+
+COPY .env.docker.prod .env
+
+RUN npm install
+RUN npm run build
+RUN npm prune --production
+
+EXPOSE 3000
+
+CMD node scripts/sync-daemon.cjs & npm run start
+
