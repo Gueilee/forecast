@@ -15,13 +15,17 @@ const { createClient } = require('@libsql/client')
 const { randomUUID } = require('crypto')
 const createId = () => randomUUID().replace(/-/g, '').substring(0, 25)
 
-const TURSO_URL   = process.env.TURSO_URL   || 'libsql://forecast-gueilee.aws-us-east-1.turso.io'
-const TURSO_TOKEN = process.env.TURSO_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzk2Nzk0NzYsImlkIjoiMDE5ZTVkMTEtZGMwMS03M2JjLWIyOTgtODFjOWM3NjkwY2M5IiwicmlkIjoiNGY0MDU0ZDQtYzliNS00MjljLTk5NjktNzg4NjY0YjZmYWM3In0.2_yL5h_ExuVFtIGcRf9b3j8HTLcmqm5-AbMO5m2mryR-C9jBCvpCaj0HURaspduQpf4BsX00E0O1QCjJOd1VBQ'
+const TURSO_URL   = process.env.TURSO_URL   || process.env.TURSO_DATABASE_URL
+const TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN
+
+const defaultOracleConn = (process.env.CONEXOS_HOST && process.env.CONEXOS_PORT && process.env.CONEXOS_SERVICE)
+  ? `${process.env.CONEXOS_HOST}:${process.env.CONEXOS_PORT}/${process.env.CONEXOS_SERVICE}`
+  : 'rds-vendemmia-uydge.conexos.cloud:15003/CONEXOS'
 
 const ORACLE_CONFIG = {
-  user:          process.env.ORACLE_USER       || 'CNXBI_VENDEMMIA',
-  password:      process.env.ORACLE_PASSWORD   || 'BYBD3DBITDJY',
-  connectString: process.env.ORACLE_CONNECTION || 'rds-vendemmia-uydge.conexos.cloud:15003/CONEXOS',
+  user:          process.env.ORACLE_USER       || process.env.CONEXOS_USER     || 'CNXBI_VENDEMMIA',
+  password:      process.env.ORACLE_PASSWORD   || process.env.CONEXOS_PASSWORD || '',
+  connectString: process.env.ORACLE_CONNECTION || defaultOracleConn,
 }
 
 // Filial usada na constraint única (invoiceNumber + filial) por BU
@@ -121,6 +125,12 @@ async function migrateFilialPlaceholder(turso) {
 }
 
 async function main() {
+  if (!TURSO_URL || !TURSO_TOKEN) {
+    throw new Error('TURSO_URL e TURSO_TOKEN precisam estar configurados no ambiente.')
+  }
+  if (!ORACLE_CONFIG.password) {
+    throw new Error('CONEXOS_PASSWORD ou ORACLE_PASSWORD precisa estar configurada no ambiente.')
+  }
   console.log(`\nSincronizando ${periods.length} período(s) — schema VE3UB (todas as BUs)...\n`)
 
   const oConn = await oracledb.getConnection(ORACLE_CONFIG)

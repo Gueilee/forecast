@@ -1,5 +1,14 @@
 const oracledb = require('oracledb')
-const CONFIG = { user: 'CNXBI_VENDEMMIA', password: 'BYBD3DBITDJY', connectString: 'rds-vendemmia-uydge.conexos.cloud:15003/CONEXOS' }
+const CONFIG = {
+  user:          process.env.CONEXOS_USER     || 'CNXBI_VENDEMMIA',
+  password:      process.env.CONEXOS_PASSWORD || '',
+  connectString: `${process.env.CONEXOS_HOST || 'rds-vendemmia-uydge.conexos.cloud'}:${process.env.CONEXOS_PORT || '15003'}/${process.env.CONEXOS_SERVICE || 'CONEXOS'}`
+}
+
+if (!CONFIG.password) {
+  console.error('❌ Erro: CONEXOS_PASSWORD não está definida no ambiente.')
+  process.exit(1)
+}
 
 async function main() {
   const conn = await oracledb.getConnection(CONFIG)

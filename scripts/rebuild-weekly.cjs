@@ -7,8 +7,13 @@ const { createClient } = require('@libsql/client')
 const { randomUUID } = require('crypto')
 const createId = () => randomUUID().replace(/-/g, '').substring(0, 25)
 
-const TURSO_URL   = process.env.TURSO_URL   || 'libsql://forecast-gueilee.aws-us-east-1.turso.io'
-const TURSO_TOKEN = process.env.TURSO_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzk2Nzk0NzYsImlkIjoiMDE5ZTVkMTEtZGMwMS03M2JjLWIyOTgtODFjOWM3NjkwY2M5IiwicmlkIjoiNGY0MDU0ZDQtYzliNS00MjljLTk5NjktNzg4NjY0YjZmYWM3In0.2_yL5h_ExuVFtIGcRf9b3j8HTLcmqm5-AbMO5m2mryR-C9jBCvpCaj0HURaspduQpf4BsX00E0O1QCjJOd1VBQ'
+const TURSO_URL   = process.env.TURSO_URL   || process.env.TURSO_DATABASE_URL
+const TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.TURSO_AUTH_TOKEN
+
+if (!TURSO_URL || !TURSO_TOKEN) {
+  console.error('❌ Erro: TURSO_URL e TURSO_TOKEN precisam estar definidos no ambiente.')
+  process.exit(1)
+}
 
 const turso = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN })
 

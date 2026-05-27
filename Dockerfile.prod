@@ -1,7 +1,10 @@
 FROM node:20-slim
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y openssl
+RUN apt-get update -y && apt-get install -y openssl tzdata
+
+ENV TZ=America/Sao_Paulo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 COPY . .
 
@@ -13,5 +16,5 @@ RUN npm prune --production
 
 EXPOSE 3000
 
-CMD node scripts/sync-daemon.cjs & npm run start
+CMD node --env-file=.env scripts/sync-daemon.cjs & node .next/standalone/server.js
 
