@@ -27,10 +27,12 @@ jobs:
           NEXTAUTH_SECRET_ESCAPED=$(escape "${{ secrets.ENV_PROD_NEXTAUTH_SECRET }}")
           TURSO_AUTH_TOKEN_ESCAPED=$(escape "${{ secrets.ENV_PROD_TURSO_AUTH_TOKEN }}")
           CONEXOS_PASSWORD_ESCAPED=$(escape "${{ secrets.ENV_PROD_CONEXOS_PASSWORD }}")
+          MAILER_DSN_ESCAPED=$(escape "${{ secrets.AZURE_SMTP_MAILER_DSN }}")
 
           sed -i "s|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET=$NEXTAUTH_SECRET_ESCAPED|g" .env.docker.prod
           sed -i "s|^TURSO_AUTH_TOKEN=.*|TURSO_AUTH_TOKEN=$TURSO_AUTH_TOKEN_ESCAPED|g" .env.docker.prod
           sed -i "s|^CONEXOS_PASSWORD=.*|CONEXOS_PASSWORD=$CONEXOS_PASSWORD_ESCAPED|g" .env.docker.prod
+          sed -i "s|^MAILER_DSN=.*|MAILER_DSN=$MAILER_DSN_ESCAPED|g" .env.docker.prod
 
       - name: Login to Azure Container Registry
         uses: azure/docker-login@v1

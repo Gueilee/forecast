@@ -1,18 +1,69 @@
 import nodemailer from 'nodemailer'
 
 const BASE_URL  = (process.env.NEXTAUTH_URL ?? 'http://localhost:3000').replace(/\/$/, '')
-const FROM      = process.env.EMAIL_FROM ?? 'Forecast Vendemmia <noreply@vendemmia.com.br>'
-const DEV_MODE  = !process.env.EMAIL_HOST
+
+const MAILER_DSN = process.env.MAILER_DSN || '';
+const MAILER_FROM = process.env.MAILER_FROM || '';
+
+let smtpHost = '';
+let smtpPort = 587;
+let smtpUser = '';
+let smtpPass = '';
+let smtpSecure = false;
+
+if (MAILER_DSN) {
+  try {
+    const parsed = new URL(MAILER_DSN);
+    const searchParams = parsed.searchParams;
+
+    const userParam = searchParams.get('username');
+    const passParam = searchParams.get('password');
+    const encryptionParam = searchParams.get('encryption');
+
+    smtpUser = userParam || decodeURIComponent(parsed.username || '');
+    smtpPass = passParam || decodeURIComponent(parsed.password || '');
+    smtpHost = parsed.hostname || '';
+
+    if (parsed.port) {
+      smtpPort = parseInt(parsed.port, 10);
+    } else {
+      smtpPort = parsed.protocol === 'smtps:' ? 465 : 587;
+    }
+
+    const encryption = (
+      encryptionParam ||
+      (parsed.protocol === 'smtps:' || smtpPort === 465 ? 'ssl' : 'tls')
+    ).toLowerCase();
+    smtpSecure = encryption === 'ssl';
+  } catch (e) {
+    console.error('Erro ao parsear MAILER_DSN:', e);
+  }
+}
+
+// Fallback para variáveis individuais se MAILER_DSN não estiver definido ou não tiver host
+if (!smtpHost) {
+  smtpHost = process.env.EMAIL_HOST || '';
+  smtpPort = parseInt(process.env.EMAIL_PORT || '587', 10);
+  smtpUser = process.env.EMAIL_USER || '';
+  smtpPass = process.env.EMAIL_PASS || '';
+  smtpSecure = process.env.EMAIL_SECURE === 'true' || smtpPort === 465;
+}
+
+const FROM = MAILER_FROM || process.env.EMAIL_FROM || (smtpUser ? `Forecast Vendemmia <${smtpUser}>` : 'Forecast Vendemmia <noreply@vendemmia.com.br>');
+const DEV_MODE = !smtpHost;
 
 function makeTransport() {
   if (DEV_MODE) return null
   return nodemailer.createTransport({
-    host:   process.env.EMAIL_HOST!,
-    port:   parseInt(process.env.EMAIL_PORT ?? '587'),
-    secure: process.env.EMAIL_SECURE === 'true',
-    auth: {
-      user: process.env.EMAIL_USER!,
-      pass: process.env.EMAIL_PASS!,
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: smtpUser ? {
+      user: smtpUser,
+      pass: smtpPass,
+    } : undefined,
+    tls: {
+      rejectUnauthorized: false,
     },
   })
 }
@@ -25,6 +76,7 @@ async function sendMail(to: string, subject: string, html: string) {
   }
   await transport.sendMail({ from: FROM, to, subject, html })
 }
+
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
