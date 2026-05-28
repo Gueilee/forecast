@@ -6,7 +6,7 @@
  * ou:       npx tsx scripts/import-excel.ts
  */
 
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
@@ -68,6 +68,17 @@ const DIM = {
   MB_PCT: 13,      // N - % MB
 }
 
+function resolveExcelValue(v: unknown): unknown {
+  if (v == null) return null
+  if (v instanceof Date) return v
+  if (typeof v === 'object') {
+    const obj = v as Record<string, unknown>
+    if ('result' in obj) return obj.result
+    if ('richText' in obj) return (obj.richText as { text: string }[]).map(r => r.text).join('')
+  }
+  return v
+}
+
 function parseNumber(val: unknown): number | null {
   if (val == null || val === '') return null
   if (typeof val === 'number') return val
@@ -89,12 +100,23 @@ function parsePercent(val: unknown): number | null {
 
 async function main() {
   console.log('📂 Carregando arquivo Excel...')
-  const workbook = XLSX.readFile(EXCEL_PATH, { cellNF: true, cellText: false })
-  const sheet = workbook.Sheets['Base']
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(EXCEL_PATH)
+  const sheet = workbook.getWorksheet('Base')
 
   if (!sheet) throw new Error('Aba "Base" não encontrada no Excel')
 
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true })
+  // Build 0-indexed rows array matching xlsx sheet_to_json { header: 1 } behavior
+  const rows: unknown[][] = []
+  sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+    while (rows.length < rowNumber - 1) rows.push(new Array(165).fill(null))
+    const excelVals = row.values as (unknown | null)[] // 1-indexed, [0] = null
+    const normalized: unknown[] = new Array(165).fill(null)
+    for (let i = 0; i < 165; i++) {
+      normalized[i] = resolveExcelValue(excelVals[i + 1])
+    }
+    rows.push(normalized)
+  })
 
   console.log(`📊 Total de linhas no sheet: ${rows.length}`)
 

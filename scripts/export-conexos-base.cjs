@@ -9,7 +9,7 @@
  */
 
 const oracledb = require('oracledb')
-const XLSX     = require('xlsx')
+const ExcelJS  = require('exceljs')
 const path     = require('path')
 
 const ORACLE_CONFIG = {
@@ -170,60 +170,50 @@ async function main() {
   })
 
   // Criar workbook
-  const wb = XLSX.utils.book_new()
-  const wsData = [headers, ...dataRows]
-  const ws = XLSX.utils.aoa_to_sheet(wsData)
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('BaseContabil')
 
-  // Formatar colunas numéricas (índices 16-24)
-  const numFmt = '#,##0.00'
-  const numericCols = [16, 17, 18, 19, 20, 21, 22, 23, 24]
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-  for (let R = 1; R <= range.e.r; R++) {
-    for (const C of numericCols) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C })
-      if (ws[addr]) {
-        ws[addr].z = numFmt
-      }
-    }
-  }
-
-  // Larguras das colunas
-  ws['!cols'] = [
-    { wch: 50 }, // Cliente
-    { wch: 16 }, // REDUZIDO
-    { wch: 12 }, // BU
-    { wch: 8  }, // Filial
-    { wch: 12 }, // Semana
-    { wch: 12 }, // Mês
-    { wch: 10 }, // Nº NF
-    { wch: 10 }, // Cód. Sist.
-    { wch: 12 }, // Emissão
-    { wch: 12 }, // Movim
-    { wch: 8  }, // E/S
-    { wch: 10 }, // CFOP
-    { wch: 16 }, // Escopo
-    { wch: 10 }, // Processo
-    { wch: 16 }, // Ref
-    { wch: 16 }, // Dcto. Comercial
-    { wch: 14 }, // Tot. Prod.
-    { wch: 14 }, // BC
-    { wch: 12 }, // ICMS ST
-    { wch: 12 }, // ICMS
-    { wch: 10 }, // ISS
-    { wch: 10 }, // PIS
-    { wch: 10 }, // COFINS
-    { wch: 10 }, // IPI
-    { wch: 14 }, // Tot. Nota
+  ws.columns = [
+    { width: 50 }, // Cliente
+    { width: 16 }, // REDUZIDO
+    { width: 12 }, // BU
+    { width: 8  }, // Filial
+    { width: 12 }, // Semana
+    { width: 12 }, // Mês
+    { width: 10 }, // Nº NF
+    { width: 10 }, // Cód. Sist.
+    { width: 12 }, // Emissão
+    { width: 12 }, // Movim
+    { width: 8  }, // E/S
+    { width: 10 }, // CFOP
+    { width: 16 }, // Escopo
+    { width: 10 }, // Processo
+    { width: 16 }, // Ref
+    { width: 16 }, // Dcto. Comercial
+    { width: 14 }, // Tot. Prod.
+    { width: 14 }, // BC
+    { width: 12 }, // ICMS ST
+    { width: 12 }, // ICMS
+    { width: 10 }, // ISS
+    { width: 10 }, // PIS
+    { width: 10 }, // COFINS
+    { width: 10 }, // IPI
+    { width: 14 }, // Tot. Nota
   ]
 
-  XLSX.utils.book_append_sheet(wb, ws, 'BaseContabil')
+  ws.addRow(headers)
+  for (const row of dataRows) ws.addRow(row)
+
+  // Formatar colunas numéricas (17-25, 1-indexed no exceljs)
+  const numericCols = [17, 18, 19, 20, 21, 22, 23, 24, 25]
+  for (const c of numericCols) ws.getColumn(c).numFmt = '#,##0.00'
 
   // Salvar na pasta do projeto
   const outPath = path.join(
     'C:\\SHP.old\\OneDrive - Vendemmia\\Documentos\\02 - Gestão de Projetos\\40 - Forecast',
     `base_conexos_oracle_${YEAR}.xlsx`
   )
-  XLSX.writeFile(wb, outPath)
+  await wb.xlsx.writeFile(outPath)
 
   console.log(`\n✅ Excel gerado: ${outPath}`)
   console.log(`   ${dataRows.length} linhas | ${headers.length} colunas`)

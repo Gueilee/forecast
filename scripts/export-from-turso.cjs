@@ -6,7 +6,7 @@
  */
 
 const { createClient } = require('@libsql/client')
-const XLSX = require('xlsx')
+const ExcelJS = require('exceljs')
 const path = require('path')
 
 const TURSO_URL   = process.env.TURSO_URL   || process.env.TURSO_DATABASE_URL
@@ -123,36 +123,24 @@ async function main() {
   })
 
   // Criar workbook
-  const wb  = XLSX.utils.book_new()
-  const ws  = XLSX.utils.aoa_to_sheet([headers, ...dataRows])
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('BaseContabil')
 
-  // Formatar colunas numéricas (16-24)
-  const numFmt     = '#,##0.00'
-  const numericIdx = [16, 17, 18, 19, 20, 21, 22, 23, 24]
-  const wsRange    = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-  for (let R = 1; R <= wsRange.e.r; R++) {
-    for (const C of numericIdx) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C })
-      if (ws[addr]) ws[addr].z = numFmt
-    }
-  }
+  const colWidths = [50, 16, 12, 8, 12, 12, 10, 10, 12, 12, 8, 10, 16, 10, 16, 16, 14, 14, 12, 12, 10, 10, 10, 10, 14]
+  ws.columns = colWidths.map(width => ({ width }))
 
-  ws['!cols'] = [
-    { wch: 50 }, { wch: 16 }, { wch: 12 }, { wch: 8 },
-    { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-    { wch: 12 }, { wch: 12 }, { wch: 8  }, { wch: 10 },
-    { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 16 },
-    { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
-  ]
+  ws.addRow(headers)
+  for (const row of dataRows) ws.addRow(row)
 
-  XLSX.utils.book_append_sheet(wb, ws, 'BaseContabil')
+  // Formatar colunas numéricas (17-25, 1-indexed no exceljs)
+  const numericCols = [17, 18, 19, 20, 21, 22, 23, 24, 25]
+  for (const c of numericCols) ws.getColumn(c).numFmt = '#,##0.00'
 
   const outPath = path.join(
     'C:\\SHP.old\\OneDrive - Vendemmia\\Documentos\\02 - Gestão de Projetos\\40 - Forecast',
     `base_conexos_oracle_${YEAR}.xlsx`
   )
-  XLSX.writeFile(wb, outPath)
+  await wb.xlsx.writeFile(outPath)
 
   console.log(`\n✅ Excel gerado: ${outPath}`)
   console.log(`   ${dataRows.length} linhas | ${headers.length} colunas`)
