@@ -31,26 +31,28 @@ interface NavSection {
   items: NavItem[]
 }
 
+const ALL_ROLES = ['DIRETO', 'CONTABIL', 'OPERACOES', 'ADMIN']
+
 const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Visão Geral',
     items: [
-      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',       roles: ['VIEWER', 'EDITOR', 'ADMIN'] },
-      { href: '/forecast',  icon: Table2,          label: 'Forecast Matrix', roles: ['VIEWER', 'EDITOR', 'ADMIN'] },
+      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',       roles: ALL_ROLES },
+      { href: '/forecast',  icon: Table2,          label: 'Forecast Matrix', roles: ALL_ROLES },
     ],
   },
   {
     title: 'Apresentações',
     items: [
-      { href: '/apresentacao', icon: MonitorPlay, label: 'Apresentação',     roles: ['VIEWER', 'EDITOR', 'ADMIN'] },
-      { href: '/tv',           icon: Tv,          label: 'TV Controladoria', roles: ['VIEWER', 'EDITOR', 'ADMIN'] },
+      { href: '/apresentacao', icon: MonitorPlay, label: 'Apresentação',     roles: ALL_ROLES },
+      { href: '/tv',           icon: Tv,          label: 'TV Controladoria', roles: ALL_ROLES },
     ],
   },
   {
     title: 'Administração',
     items: [
-      { href: '/admin/plan',  icon: Settings,  label: 'Gestão do Plano', roles: ['EDITOR', 'ADMIN'] },
-      { href: '/admin/sync',  icon: RefreshCw, label: 'Sincronização',   roles: ['ADMIN'] },
+      { href: '/admin/plan',  icon: Settings,  label: 'Gestão do Plano', roles: ALL_ROLES },
+      { href: '/admin/sync',  icon: RefreshCw, label: 'Sincronização',   roles: ALL_ROLES },
       { href: '/admin/users', icon: Users,     label: 'Usuários',        roles: ['ADMIN'] },
     ],
   },
@@ -124,7 +126,7 @@ function NavLink({
 export function Sidebar() {
   const pathname   = usePathname()
   const { data: session } = useSession()
-  const userRole   = session?.user?.role ?? 'VIEWER'
+  const userRole   = session?.user?.role ?? 'DIRETO'
 
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)

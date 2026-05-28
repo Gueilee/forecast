@@ -7,7 +7,7 @@ import { PlanTable } from '@/components/admin/PlanTable'
 
 export default async function PlanPage() {
   const session = await getServerSession(authOptions)
-  if (!session || !['EDITOR', 'ADMIN'].includes(session.user.role)) redirect('/dashboard')
+  if (!session || !['DIRETO', 'CONTABIL', 'OPERACOES', 'ADMIN'].includes(session.user.role)) redirect('/dashboard')
 
   const clients = await db.client.findMany({
     where: { isActive: true },
