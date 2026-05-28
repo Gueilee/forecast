@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 
 type TokenState =
@@ -12,6 +13,7 @@ type TokenState =
 function DefinirSenhaForm() {
   const searchParams  = useSearchParams()
   const router        = useRouter()
+  const { data: session } = useSession()
   const token         = searchParams.get('token') ?? ''
 
   const [tokenState, setTokenState] = useState<TokenState>({ status: 'loading' })
@@ -54,7 +56,9 @@ function DefinirSenhaForm() {
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Erro ao definir senha'); return }
       setDone(true)
-      setTimeout(() => router.push('/login'), 3000)
+      // Admin logado testando o fluxo → volta para gestão de usuários
+      // Novo usuário → vai para login para entrar com a nova senha
+      setTimeout(() => router.push(session ? '/admin/users' : '/login'), 3000)
     })
   }
 
@@ -109,7 +113,7 @@ function DefinirSenhaForm() {
             <CheckCircle2 className="w-12 h-12" style={{ color: '#0d6d38' }} />
             <h2 className="text-base font-bold" style={{ color: '#414042' }}>Senha definida!</h2>
             <p className="text-sm" style={{ color: '#9a8fb5' }}>
-              Redirecionando para o login...
+              {session ? 'Redirecionando para gestão de usuários...' : 'Redirecionando para o login...'}
             </p>
           </div>
         )}
