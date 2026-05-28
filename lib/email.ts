@@ -81,54 +81,127 @@ export async function sendResetEmail(to: string, name: string, token: string) {
   await sendMail(to, 'Redefinição de senha — Forecast Vendemmia', resetHtml(name, link))
 }
 
-// ── HTML Templates ──────────────────────────────────────────────────────────
+// ── HTML Templates (Outlook-compatible table layout) ────────────────────────
 
 function wrapper(content: string) {
   const logo = `${BASE_URL}/logo_v2.png`
   return `<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
   <title>Forecast Vendemmia</title>
 </head>
-<body style="margin:0;padding:0;background:#f0edf8;font-family:Inter,Helvetica,Arial,sans-serif">
-  <div style="max-width:560px;margin:40px auto">
+<body style="margin:0;padding:0;background-color:#f0edf8;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<table width="100%" bgcolor="#f0edf8" cellpadding="0" cellspacing="0" border="0" role="presentation">
+  <tr><td align="center" style="padding:32px 16px">
+    <table width="560" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:560px;width:100%">
 
-    <!-- Header com logo -->
-    <div style="background:linear-gradient(135deg,#422c76 0%,#6b21a8 50%,#ff2f69 100%);border-radius:20px 20px 0 0;padding:32px 40px 28px;text-align:center">
-      <img src="${logo}" alt="Forecast by Vendemmia" width="180" style="display:inline-block;height:auto;max-width:180px" />
-    </div>
+      <!--  HEADER  -->
+      <tr>
+        <td>
+          <!--[if mso]>
+          <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false"
+            style="mso-width-percent:1000;height:96px;">
+            <v:fill type="gradient" color="#422c76" color2="#ff2f69" angle="135"/>
+            <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:true">
+          <![endif]-->
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+            style="background:linear-gradient(135deg,#422c76 0%,#ff2f69 100%);border-radius:14px 14px 0 0">
+            <tr>
+              <td align="center" style="padding:28px 40px">
+                <!--[if mso]>
+                  <p style="margin:0;font-family:Arial;font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:1px">FORECAST VENDEMMIA</p>
+                <![endif]-->
+                <!--[if !mso]><!-->
+                <img src="${logo}" alt="Forecast Vendemmia" width="160"
+                  style="display:inline-block;height:auto;max-width:160px;border:0;outline:none;text-decoration:none" />
+                <!--<![endif]-->
+              </td>
+            </tr>
+          </table>
+          <!--[if mso]></v:textbox></v:rect><![endif]-->
+        </td>
+      </tr>
 
-    <!-- Linha divisória decorativa -->
-    <div style="height:4px;background:linear-gradient(90deg,#422c76,#ff2f69)"></div>
+      <!-- Barra roxa sólida (fallback da linha decorativa) -->
+      <tr>
+        <td bgcolor="#422c76" height="4" style="font-size:0;line-height:0">&nbsp;</td>
+      </tr>
 
-    <!-- Corpo -->
-    <div style="background:#ffffff;padding:40px 44px;border-left:1px solid rgba(66,44,118,0.1);border-right:1px solid rgba(66,44,118,0.1)">
-      ${content}
-    </div>
+      <!--  BODY  -->
+      <tr>
+        <td bgcolor="#ffffff"
+          style="padding:36px 44px;border-left:1px solid #e8e3f4;border-right:1px solid #e8e3f4">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+            <tr><td>${content}</td></tr>
+          </table>
+        </td>
+      </tr>
 
-    <!-- Footer -->
-    <div style="background:#f5f3fa;border-radius:0 0 20px 20px;padding:20px 40px;border:1px solid rgba(66,44,118,0.1);border-top:none;text-align:center">
-      <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.6">
-        © 2026 Vendemmia Comércio Internacional &nbsp;·&nbsp; Mensagem automática, não responda este e-mail
-      </p>
-    </div>
+      <!--  FOOTER  -->
+      <tr>
+        <td bgcolor="#f5f3fa"
+          style="padding:18px 40px;text-align:center;border:1px solid #e8e3f4;border-top:none;border-radius:0 0 14px 14px">
+          <p style="margin:0;font-size:11px;color:#9ca3af;font-family:Arial,sans-serif;line-height:1.6">
+            &copy; 2026 Vendemmia Com&eacute;rcio Internacional &nbsp;&middot;&nbsp; Mensagem autom&aacute;tica, n&atilde;o responda este e-mail
+          </p>
+        </td>
+      </tr>
 
-  </div>
+    </table>
+  </td></tr>
+</table>
 </body>
 </html>`
 }
 
 function btn(label: string, link: string) {
   return `
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+    <table cellpadding="0" cellspacing="0" border="0" role="presentation">
       <tr>
-        <td style="border-radius:12px;background:linear-gradient(135deg,#422c76,#ff2f69);box-shadow:0 6px 24px rgba(255,47,105,0.35)">
+        <td align="center" bgcolor="#422c76"
+          style="border-radius:8px;mso-padding-alt:0">
+          <!--[if mso]>
+          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+            xmlns:w="urn:schemas-microsoft-com:office:word"
+            href="${link}"
+            style="height:48px;v-text-anchor:middle;width:220px;"
+            arcsize="17%" fillcolor="#422c76" stroke="f">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:15px;font-weight:bold">
+              ${label}
+            </center>
+          </v:roundrect>
+          <![endif]-->
+          <!--[if !mso]><!-->
           <a href="${link}"
-             style="display:inline-block;padding:15px 36px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.2px;border-radius:12px;mso-padding-alt:0">
+            style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#422c76,#ff2f69);color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;font-family:Arial,sans-serif;border-radius:8px;mso-hide:all">
             ${label}
           </a>
+          <!--<![endif]-->
+        </td>
+      </tr>
+    </table>`
+}
+
+function divider() {
+  return `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:18px 0">
+    <tr><td bgcolor="#e8e3f4" height="1" style="font-size:0;line-height:0">&nbsp;</td></tr>
+  </table>`
+}
+
+function infoBox(text: string) {
+  return `
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-top:24px">
+      <tr>
+        <td width="4" bgcolor="#422c76" style="font-size:0;line-height:0">&nbsp;</td>
+        <td bgcolor="#f0ecff" style="padding:14px 16px;font-family:Arial,sans-serif;font-size:12px;color:#6b7280;line-height:1.7">
+          ${text}
         </td>
       </tr>
     </table>`
@@ -136,59 +209,37 @@ function btn(label: string, link: string) {
 
 function inviteHtml(name: string, link: string) {
   return wrapper(`
-    <h2 style="margin:0 0 6px;font-size:22px;font-weight:800;color:#422c76;letter-spacing:-0.3px">
-      Bem-vindo(a), ${name}!
-    </h2>
-    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#ff2f69;text-transform:uppercase;letter-spacing:0.8px">
+    <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;color:#ff2f69;text-transform:uppercase;letter-spacing:1px">
       Convite de acesso
     </p>
-
-    <div style="height:1px;background:linear-gradient(90deg,rgba(66,44,118,0.15),transparent);margin:18px 0"></div>
-
-    <p style="margin:0 0 12px;font-size:15px;color:#4b5563;line-height:1.7">
+    <h2 style="margin:6px 0 0;font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:#422c76">
+      Bem-vindo(a), ${name}!
+    </h2>
+    ${divider()}
+    <p style="margin:0 0 24px;font-family:Arial,sans-serif;font-size:15px;color:#4b5563;line-height:1.7">
       Sua conta no <strong style="color:#414042">Forecast Vendemmia</strong> foi criada com sucesso.
-      Clique no botão abaixo para definir sua senha e ativar o acesso ao sistema.
+      Clique no bot&atilde;o abaixo para definir sua senha e ativar o acesso ao sistema.
     </p>
-
-    <div style="margin:32px 0">
-      ${btn('Definir minha senha', link)}
-    </div>
-
-    <div style="padding:16px 18px;background:#f8f6ff;border-radius:12px;border-left:4px solid #422c76">
-      <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.7">
-        <strong style="color:#422c76">⏱ Este link é válido por 7 dias.</strong><br>
-        Se você não esperava este convite, pode ignorar este e-mail com segurança — nenhuma ação é necessária.
-      </p>
-    </div>
+    ${btn('Definir minha senha', link)}
+    ${infoBox('<strong style="color:#422c76">Este link &eacute; v&aacute;lido por 7 dias.</strong><br>Se voc&ecirc; n&atilde;o esperava este convite, pode ignorar este e-mail com seguran&ccedil;a.')}
   `)
 }
 
 function resetHtml(name: string, link: string) {
   return wrapper(`
-    <h2 style="margin:0 0 6px;font-size:22px;font-weight:800;color:#422c76;letter-spacing:-0.3px">
-      Redefinição de senha
+    <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;color:#ff2f69;text-transform:uppercase;letter-spacing:1px">
+      Redefini&ccedil;&atilde;o de senha
+    </p>
+    <h2 style="margin:6px 0 0;font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:#422c76">
+      Ol&aacute;, ${name}!
     </h2>
-    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#ff2f69;text-transform:uppercase;letter-spacing:0.8px">
-      Solicitação de acesso
+    ${divider()}
+    <p style="margin:0 0 24px;font-family:Arial,sans-serif;font-size:15px;color:#4b5563;line-height:1.7">
+      Recebemos uma solicita&ccedil;&atilde;o para redefinir a senha da sua conta no
+      <strong style="color:#414042">Forecast Vendemmia</strong>.
+      Clique no bot&atilde;o abaixo para criar uma nova senha.
     </p>
-
-    <div style="height:1px;background:linear-gradient(90deg,rgba(66,44,118,0.15),transparent);margin:18px 0"></div>
-
-    <p style="margin:0 0 12px;font-size:15px;color:#4b5563;line-height:1.7">
-      Olá, <strong style="color:#414042">${name}</strong>. Recebemos uma solicitação para redefinir a senha
-      da sua conta no <strong style="color:#414042">Forecast Vendemmia</strong>.
-      Clique no botão abaixo para criar uma nova senha.
-    </p>
-
-    <div style="margin:32px 0">
-      ${btn('Redefinir minha senha', link)}
-    </div>
-
-    <div style="padding:16px 18px;background:#f8f6ff;border-radius:12px;border-left:4px solid #422c76">
-      <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.7">
-        <strong style="color:#422c76">⏱ Este link expira em 1 hora.</strong><br>
-        Se você não solicitou a redefinição, ignore este e-mail — sua senha permanece inalterada.
-      </p>
-    </div>
+    ${btn('Redefinir minha senha', link)}
+    ${infoBox('<strong style="color:#422c76">Este link expira em 1 hora.</strong><br>Se voc&ecirc; n&atilde;o solicitou a redefini&ccedil;&atilde;o, ignore este e-mail &mdash; sua senha permanece inalterada.')}
   `)
 }
