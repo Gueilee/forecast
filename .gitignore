@@ -49,3 +49,9 @@ prisma/*.db
 prisma/*.db-journal
 prisma/*.db-wal
 prisma/*.db-shm
+
+# Scripts de diagnóstico/investigação (contêm credenciais hardcoded)
+scripts/diagnostico-*.cjs
+scripts/investiga-*.cjs
+scripts/verify-fix.cjs
+scripts/read-excel-analysis.cjs
