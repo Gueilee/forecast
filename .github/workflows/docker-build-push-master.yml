@@ -52,17 +52,54 @@ jobs:
 
       - name: Recriar container no Portainer
         run: |
-          TOKEN=$(curl -k -s -X POST "https://191.233.21.33:9000/api/auth" \
+          BASE="https://191.233.21.33:9000"
+          EP=3
+
+          # Autenticação
+          TOKEN=$(curl -k -sf -X POST "$BASE/api/auth" \
             -H "Content-Type: application/json" \
-            -d '{"Username":"${{ vars.PORTAINER_USER_PROD }}","Password":"${{ secrets.PORTAINER_PASS_PROD }}"}' \
-            | grep -o '"jwt":"[^\"]*"' | cut -d':' -f2 | sed 's/["}]//g')
-          CONTAINER_ID=$(curl -k -s -X GET "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/containers/json?all=true&filters=%7B%22name%22%3A%5B%22vendemmia-forecast%22%5D%7D" \
+            -d "{\"Username\":\"${{ vars.PORTAINER_USER_PROD }}\",\"Password\":\"${{ secrets.PORTAINER_PASS_PROD }}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['jwt'])")
+
+          echo "Token obtido: ${TOKEN:0:20}..."
+
+          # Busca ID do container
+          CONTAINER_ID=$(curl -k -sf \
+            "$BASE/api/endpoints/$EP/docker/v1.41/containers/json?all=true&filters=%7B%22name%22%3A%5B%22vendemmia-forecast%22%5D%7D" \
             -H "Authorization: Bearer $TOKEN" \
-            | grep -o '"Id":"[^"]*"' | head -n1 | cut -d':' -f2 | sed 's/"//g')
-          curl -k -X POST "https://191.233.21.33:9000/api/docker/3/containers/$CONTAINER_ID/recreate" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['Id'] if d else '')")
+
+          echo "Container ID: ${CONTAINER_ID:0:12}..."
+
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "❌ Container não encontrado"
+            exit 1
+          fi
+
+          # Para o container
+          curl -k -sf -X POST "$BASE/api/endpoints/$EP/docker/v1.41/containers/$CONTAINER_ID/stop" \
+            -H "Authorization: Bearer $TOKEN" || true
+
+          # Pull da nova imagem
+          IMAGE="vdmprod.azurecr.io/samples/vendemmia-forecast:latest"
+          curl -k -sf -X POST "$BASE/api/endpoints/$EP/docker/v1.41/images/create?fromImage=$IMAGE" \
+            -H "Authorization: Bearer $TOKEN" || true
+
+          # Tenta recreate via Portainer
+          RECREATE=$(curl -k -s -o /dev/null -w "%{http_code}" \
+            -X POST "$BASE/api/endpoints/$EP/docker/containers/$CONTAINER_ID/recreate" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{"PullImage":true}'
+            -d '{"PullImage":true}')
+
+          if [ "$RECREATE" = "200" ] || [ "$RECREATE" = "204" ]; then
+            echo "✅ Container recriado via Portainer (HTTP $RECREATE)"
+          else
+            echo "⚠️ Recreate retornou HTTP $RECREATE — tentando start direto"
+            curl -k -sf -X POST "$BASE/api/endpoints/$EP/docker/v1.41/containers/$CONTAINER_ID/start" \
+              -H "Authorization: Bearer $TOKEN"
+            echo "✅ Container iniciado"
+          fi
 
       - name: Remover imagens Docker não utilizadas
         run: |

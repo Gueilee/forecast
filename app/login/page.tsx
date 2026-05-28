@@ -1,15 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Se chegar com ?token= (link de convite/reset antigo), redireciona para a tela correta
+  useEffect(() => {
+    const token = searchParams.get('token')
+    if (token) router.replace(`/definir-senha?token=${token}`)
+  }, [searchParams, router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -152,4 +159,9 @@ export default function LoginPage() {
       </div>
     </div>
   )
+}
+
+import { Suspense } from 'react'
+export default function LoginPage() {
+  return <Suspense><LoginForm /></Suspense>
 }
