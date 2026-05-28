@@ -2,13 +2,21 @@ import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
-import bcrypt from 'bcryptjs'
+import { sendInviteEmail } from '@/lib/email'
+import crypto from 'crypto'
 
 const VALID_ROLES = ['ADMIN', 'DIRETO', 'CONTABIL', 'OPERACOES']
 
-const SELECT = {
-  id: true, name: true, email: true,
-  role: true, isActive: true, createdAt: true,
+function toUserRow(u: {
+  id: string; name: string; email: string
+  role: string; isActive: boolean; createdAt: Date; password: string | null
+}) {
+  return {
+    id: u.id, name: u.name, email: u.email,
+    role: u.role, isActive: u.isActive,
+    createdAt: u.createdAt.toISOString(),
+    pendingActivation: u.password === null,
+  }
 }
 
 export async function GET() {
@@ -17,10 +25,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
 
   const users = await db.user.findMany({
-    select: SELECT,
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, password: true },
     orderBy: { createdAt: 'asc' },
   })
-  return NextResponse.json(users)
+  return NextResponse.json(users.map(toUserRow))
 }
 
 export async function POST(req: Request) {
@@ -28,16 +36,13 @@ export async function POST(req: Request) {
   if (!session || session.user.role !== 'ADMIN')
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
 
-  const { name, email, password, role } = await req.json()
+  const { name, email, role } = await req.json()
 
-  if (!name?.trim() || !email?.trim() || !password || !role)
+  if (!name?.trim() || !email?.trim() || !role)
     return NextResponse.json({ error: 'Preencha todos os campos' }, { status: 400 })
 
   if (!VALID_ROLES.includes(role))
     return NextResponse.json({ error: 'Perfil inválido' }, { status: 400 })
-
-  if (String(password).length < 6)
-    return NextResponse.json({ error: 'Senha deve ter pelo menos 6 caracteres' }, { status: 400 })
 
   const existing = await db.user.findUnique({ where: { email: email.trim().toLowerCase() } })
   if (existing)
@@ -47,10 +52,28 @@ export async function POST(req: Request) {
     data: {
       name: name.trim(),
       email: email.trim().toLowerCase(),
-      password: await bcrypt.hash(String(password), 10),
+      password: null,
       role,
     },
-    select: SELECT,
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, password: true },
   })
-  return NextResponse.json(user, { status: 201 })
+
+  // Gera token de convite (válido por 7 dias)
+  const token = crypto.randomBytes(32).toString('hex')
+  await db.passwordToken.create({
+    data: {
+      token,
+      userId: user.id,
+      type: 'INVITE',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  })
+
+  try {
+    await sendInviteEmail(user.email, user.name, token)
+  } catch (err) {
+    console.error('[email] Falha ao enviar convite:', err)
+  }
+
+  return NextResponse.json(toUserRow(user), { status: 201 })
 }

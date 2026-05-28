@@ -6,9 +6,16 @@ import bcrypt from 'bcryptjs'
 
 const VALID_ROLES = ['ADMIN', 'DIRETO', 'CONTABIL', 'OPERACOES']
 
-const SELECT = {
-  id: true, name: true, email: true,
-  role: true, isActive: true, createdAt: true,
+function toUserRow(u: {
+  id: string; name: string; email: string
+  role: string; isActive: boolean; createdAt: Date; password: string | null
+}) {
+  return {
+    id: u.id, name: u.name, email: u.email,
+    role: u.role, isActive: u.isActive,
+    createdAt: u.createdAt.toISOString(),
+    pendingActivation: u.password === null,
+  }
 }
 
 export async function PATCH(
@@ -32,17 +39,17 @@ export async function PATCH(
     return NextResponse.json({ error: 'Senha deve ter pelo menos 6 caracteres' }, { status: 400 })
 
   const data: Record<string, unknown> = {}
-  if (name  !== undefined) data.name     = String(name).trim()
-  if (role  !== undefined) data.role     = role
+  if (name     !== undefined) data.name     = String(name).trim()
+  if (role     !== undefined) data.role     = role
   if (isActive !== undefined) data.isActive = isActive
   if (password) data.password = await bcrypt.hash(String(password), 10)
 
   const user = await db.user.update({
     where: { id },
     data,
-    select: SELECT,
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, password: true },
   })
-  return NextResponse.json(user)
+  return NextResponse.json(toUserRow(user))
 }
 
 export async function DELETE(

@@ -12,13 +12,24 @@ model User {
   id                String             @id @default(cuid())
   name              String
   email             String             @unique
-  password          String
-  role              String             @default("VIEWER")
+  password          String?            // null = aguardando ativação via convite
+  role              String             @default("DIRETO")
   isActive          Boolean            @default(true)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   comments          WeekComment[]
   forecastRevisions ForecastRevision[]
+  passwordTokens    PasswordToken[]
+}
+
+model PasswordToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  type      String   // 'INVITE' | 'RESET'
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Client {

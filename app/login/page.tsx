@@ -132,6 +132,18 @@ export default function LoginPage() {
           >
             {loading ? 'Entrando...' : 'Entrar no Sistema'}
           </button>
+
+          <div className="flex justify-center pt-1">
+            <a
+              href="/esqueci-senha"
+              className="text-xs font-medium transition-colors"
+              style={{ color: 'rgba(65,64,66,0.45)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#422c76')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(65,64,66,0.45)')}
+            >
+              Esqueceu sua senha?
+            </a>
+          </div>
         </form>
 
         <p className="text-center text-[11px]" style={{ color: 'rgba(65,64,66,0.35)' }}>

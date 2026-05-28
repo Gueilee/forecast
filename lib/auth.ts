@@ -25,6 +25,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (!user || !user.isActive) return null
+        if (!user.password) return null  // conta pendente de ativação via convite
 
         const valid = await bcrypt.compare(credentials.password, user.password)
         if (!valid) return null
