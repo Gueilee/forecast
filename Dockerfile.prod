@@ -12,6 +12,8 @@ COPY .env.docker.prod .env
 
 RUN npm install
 RUN npm run build
+# public/ e static/ precisam estar dentro do standalone para o servidor Next.js encontrá-los
+RUN cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static
 RUN npm prune --production
 
 EXPOSE 3000
