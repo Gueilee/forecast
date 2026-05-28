@@ -49,7 +49,7 @@ if (!smtpHost) {
   smtpSecure = process.env.EMAIL_SECURE === 'true' || smtpPort === 465;
 }
 
-const FROM = MAILER_FROM || process.env.EMAIL_FROM || (smtpUser ? `Forecast Vendemmia <${smtpUser}>` : 'Forecast Vendemmia <noreply@vendemmia.com.br>');
+const FROM = MAILER_FROM || process.env.EMAIL_FROM || (smtpUser && smtpUser.includes('@') ? `Forecast Vendemmia <${smtpUser}>` : 'Forecast Vendemmia <naoresponda@vendemmia.com.br>');
 const DEV_MODE = !smtpHost;
 
 function makeTransport() {

@@ -16,5 +16,6 @@ RUN npm prune --production
 
 EXPOSE 3000
 
-CMD node --env-file=.env scripts/sync-daemon.cjs & node .next/standalone/server.js
+CMD node --env-file=.env scripts/sync-daemon.cjs & node --env-file=.env .next/standalone/server.js
+
 
