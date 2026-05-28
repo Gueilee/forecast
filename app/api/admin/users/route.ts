@@ -48,31 +48,37 @@ export async function POST(req: Request) {
   if (existing)
     return NextResponse.json({ error: 'E-mail já cadastrado' }, { status: 409 })
 
-  const user = await db.user.create({
-    data: {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      password: null,
-      role,
-    },
-    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, password: true },
-  })
+  let user
+  try {
+    user = await db.user.create({
+      data: {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password: null,
+        role,
+      },
+      select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, password: true },
+    })
+  } catch (err) {
+    console.error('[users] Falha ao criar usuário:', err)
+    return NextResponse.json({ error: 'Erro ao criar usuário' }, { status: 500 })
+  }
 
   // Gera token de convite (válido por 7 dias)
   const token = crypto.randomBytes(32).toString('hex')
-  await db.passwordToken.create({
-    data: {
-      token,
-      userId: user.id,
-      type: 'INVITE',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    },
-  })
-
   try {
+    await db.passwordToken.create({
+      data: {
+        token,
+        userId: user.id,
+        type: 'INVITE',
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    })
     await sendInviteEmail(user.email, user.name, token)
   } catch (err) {
-    console.error('[email] Falha ao enviar convite:', err)
+    console.error('[users] Falha ao enviar convite:', err)
+    // Usuário já criado — retorna sucesso mas sem convite enviado
   }
 
   return NextResponse.json(toUserRow(user), { status: 201 })

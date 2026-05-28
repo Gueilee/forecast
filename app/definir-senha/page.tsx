@@ -75,7 +75,7 @@ function DefinirSenhaForm() {
         {/* Logo */}
         <div className="flex justify-center pb-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Forecast by Vendemmia" style={{ width: '180px', height: 'auto' }} />
+          <img src="/logo_v2.png" alt="Forecast by Vendemmia" style={{ width: '180px', height: 'auto' }} />
         </div>
         <div style={{ height: '1px', background: 'rgba(66,44,118,0.1)' }} />
 

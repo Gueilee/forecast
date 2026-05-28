@@ -54,7 +54,7 @@ export default function LoginPage() {
         <div className="flex justify-center pb-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo.png"
+            src="/logo_v2.png"
             alt="Forecast by Vendemmia"
             style={{ width: '200px', height: 'auto', display: 'block' }}
           />

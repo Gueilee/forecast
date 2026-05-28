@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { UserPlus, Pencil, Trash2, X, MailCheck, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,7 +25,7 @@ type ModalState =
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROLES = [
-  { value: 'DIRETO',    label: 'Direto' },
+  { value: 'DIRETO',    label: 'Diretor' },
   { value: 'CONTABIL',  label: 'Contábil' },
   { value: 'OPERACOES', label: 'Operações' },
   { value: 'ADMIN',     label: 'Admin' },
@@ -243,8 +244,8 @@ export function UsersManager({ initial, currentUserId }: { initial: UserRow[]; c
     try {
       const res = await fetch(`/api/admin/users/${userId}/resend-invite`, { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) alert(data.error ?? 'Erro ao reenviar convite')
-      else alert('Convite reenviado com sucesso!')
+      if (!res.ok) toast.error(data.error ?? 'Erro ao reenviar convite')
+      else toast.success('Convite reenviado com sucesso!')
     } finally {
       setResending(null)
     }

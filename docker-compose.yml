@@ -22,6 +22,15 @@ services:
       # Auth
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXTAUTH_URL:    ${NEXTAUTH_URL}
+      # E-mail (suporta DSN único ou variáveis individuais)
+      MAILER_DSN:  ${MAILER_DSN}
+      MAILER_FROM: ${MAILER_FROM:-"Forecast Vendemmia <noreply@vendemmia.com.br>"}
+      EMAIL_HOST:   ${EMAIL_HOST:-}
+      EMAIL_PORT:   ${EMAIL_PORT:-587}
+      EMAIL_SECURE: ${EMAIL_SECURE:-false}
+      EMAIL_USER:   ${EMAIL_USER:-}
+      EMAIL_PASS:   ${EMAIL_PASS:-}
+      EMAIL_FROM:   ${EMAIL_FROM:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
       interval: 30s
