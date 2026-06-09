@@ -51,75 +51,138 @@ jobs:
         run: docker push vdmprod.azurecr.io/samples/vendemmia-forecast
 
       - name: Recriar container no Portainer
+        env:
+          PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
+          PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
+          ACR_AUTH_B64: ${{ secrets.AZURE_ACR_AUTH_B64 }}
         run: |
-          BASE="https://191.233.21.33:9000"
-          EP=3
-          CONTAINER_NAME="vendemmia-forecast"
-          IMAGE="vdmprod.azurecr.io/samples/vendemmia-forecast:latest"
+          cat > /tmp/deploy.py << 'PYEOF'
+          import os, json, sys, urllib.request, urllib.error, ssl
 
-          echo "=== Autenticando no Portainer ==="
-          AUTH_RESPONSE=$(curl -k -s -X POST "$BASE/api/auth" \
-            -H "Content-Type: application/json" \
-            -d '{"Username":"${{ vars.PORTAINER_USER_PROD }}","Password":"${{ secrets.PORTAINER_PASS_PROD }}"}')
-          echo "Auth response: $AUTH_RESPONSE"
+          BASE  = "https://191.233.21.33:9000"
+          EP    = 3
+          IMAGE = "vdmprod.azurecr.io/samples/vendemmia-forecast:latest"
 
-          TOKEN=$(echo "$AUTH_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('jwt',''))")
-          if [ -z "$TOKEN" ]; then
-            echo "❌ Falha na autenticação Portainer"
-            exit 1
-          fi
-          echo "✅ Token obtido"
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode    = ssl.CERT_NONE
 
-          echo "=== Buscando container ==="
-          CONTAINERS=$(curl -k -s \
-            "$BASE/api/endpoints/$EP/docker/v1.41/containers/json?all=true" \
-            -H "Authorization: Bearer $TOKEN")
-          echo "Containers: $(echo $CONTAINERS | python3 -c "import sys,json; [print(c['Names'],c['Id'][:12]) for c in json.load(sys.stdin)]" 2>/dev/null || echo $CONTAINERS)"
+          class P:
+              token = ""
+              def call(self, method, path, data=None, xh=None):
+                  hdrs = {"Content-Type": "application/json"}
+                  if self.token: hdrs["Authorization"] = f"Bearer {self.token}"
+                  if xh: hdrs.update(xh)
+                  body = json.dumps(data).encode() if data is not None else None
+                  rq   = urllib.request.Request(f"{BASE}{path}", data=body, headers=hdrs, method=method)
+                  try:
+                      with urllib.request.urlopen(rq, context=ctx) as r:
+                          raw = r.read()
+                          return r.status, (json.loads(raw) if raw else {})
+                  except urllib.error.HTTPError as e:
+                      raw = e.read()
+                      return e.code, (json.loads(raw) if raw else {"message": str(e)})
 
-          CONTAINER_ID=$(echo "$CONTAINERS" | python3 -c "
-          import sys,json
-          containers = json.load(sys.stdin)
-          for c in containers:
-              names = c.get('Names', [])
-              if any('$CONTAINER_NAME' in n for n in names):
-                  print(c['Id'])
-                  break
-          ")
+          p = P()
 
-          if [ -z "$CONTAINER_ID" ]; then
-            echo "❌ Container '$CONTAINER_NAME' não encontrado"
-            exit 1
-          fi
-          echo "✅ Container: ${CONTAINER_ID:0:12}"
+          # --- Auth ---
+          _, auth = p.call("POST", "/api/auth", {
+              "Username": os.environ["PORTAINER_USER"],
+              "Password": os.environ["PORTAINER_PASS"],
+          })
+          p.token = auth.get("jwt", "")
+          if not p.token:
+              print("❌ Auth falhou:", auth); sys.exit(1)
+          print("✅ Autenticado no Portainer")
 
-          echo "=== Parando container ==="
-          curl -k -s -X POST "$BASE/api/endpoints/$EP/docker/v1.41/containers/$CONTAINER_ID/stop" \
-            -H "Authorization: Bearer $TOKEN" -w "\nHTTP %{http_code}" || true
+          # --- Listar containers ---
+          _, cs = p.call("GET", f"/api/endpoints/{EP}/docker/v1.41/containers/json?all=true")
+          print(f"\nContainers encontrados ({len(cs)}):")
+          for c in cs:
+              print(f"  {c.get('Names')} [{c.get('Status')}] {c.get('Image','')[:60]}")
 
-          echo "=== Pull da nova imagem ==="
-          curl -k -s -X POST "$BASE/api/endpoints/$EP/docker/v1.41/images/create?fromImage=${IMAGE%:*}&tag=${IMAGE##*:}" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "X-Registry-Auth: ${{ secrets.AZURE_ACR_AUTH_B64 }}" \
-            -w "\nHTTP %{http_code}" || true
+          # --- Localizar o container (tenta múltiplos nomes) ---
+          cid = None
+          for name in ["vendemmia-forecast", "forecast-app", "forecast"]:
+              for c in cs:
+                  if any(name in n for n in c.get("Names", [])):
+                      cid = c["Id"]
+                      print(f"\n✅ Alvo: {c['Names']} ({cid[:12]})")
+                      break
+              if cid: break
 
-          echo "=== Iniciando container ==="
-          START_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" \
-            -X POST "$BASE/api/endpoints/$EP/docker/v1.41/containers/$CONTAINER_ID/start" \
-            -H "Authorization: Bearer $TOKEN")
-          echo "Start HTTP: $START_CODE"
+          if not cid:
+              print("❌ Nenhum container encontrado com os nomes esperados.")
+              sys.exit(1)
 
-          if [ "$START_CODE" = "204" ] || [ "$START_CODE" = "304" ]; then
-            echo "✅ Container reiniciado com sucesso"
-          else
-            echo "⚠️ Start retornou HTTP $START_CODE"
-          fi
+          # --- Inspecionar para obter configuração completa ---
+          _, ins = p.call("GET", f"/api/endpoints/{EP}/docker/v1.41/containers/{cid}/json")
+          cname = ins["Name"].lstrip("/")
+          print(f"   Nome: {cname}")
+          print(f"   Imagem atual: {ins['Config']['Image']}")
+
+          # --- Pull nova imagem ---
+          print("\n=== Pull nova imagem ===")
+          st, _ = p.call("POST",
+              f"/api/endpoints/{EP}/docker/v1.41/images/create?fromImage=vdmprod.azurecr.io/samples/vendemmia-forecast&tag=latest",
+              xh={"X-Registry-Auth": os.environ.get("ACR_AUTH_B64", "")})
+          print(f"HTTP {st}")
+
+          # --- Stop ---
+          print("\n=== Stop ===")
+          st, _ = p.call("POST", f"/api/endpoints/{EP}/docker/v1.41/containers/{cid}/stop")
+          print(f"HTTP {st}")
+
+          # --- Remove ---
+          print("\n=== Remove ===")
+          st, resp = p.call("DELETE", f"/api/endpoints/{EP}/docker/v1.41/containers/{cid}?force=true")
+          print(f"HTTP {st}", resp.get("message","") if st not in (200, 204) else "ok")
+
+          # --- Montar body de criação baseado no inspect ---
+          # Filtra campos que não são aceitos no endpoint de criação
+          skip = {"Hostname", "Domainname", "AttachStdin", "AttachStdout",
+                  "AttachStderr", "Tty", "OpenStdin", "StdinOnce"}
+          cfg = {k: v for k, v in ins["Config"].items() if k not in skip}
+          cfg["Image"]            = IMAGE
+          cfg["HostConfig"]       = ins["HostConfig"]
+          cfg["NetworkingConfig"] = {
+              "EndpointsConfig": ins.get("NetworkSettings", {}).get("Networks", {})
+          }
+
+          # --- Create ---
+          print("\n=== Create ===")
+          st, new = p.call("POST",
+              f"/api/endpoints/{EP}/docker/v1.41/containers/create?name={cname}", cfg)
+          print(f"HTTP {st}")
+          if st not in (200, 201) or "Id" not in new:
+              print("❌ Create falhou:", new); sys.exit(1)
+
+          new_id = new["Id"]
+          print(f"Novo ID: {new_id[:12]}")
+
+          # --- Start ---
+          print("\n=== Start ===")
+          st, _ = p.call("POST", f"/api/endpoints/{EP}/docker/v1.41/containers/{new_id}/start")
+          print(f"HTTP {st}")
+          if st in (204, 304):
+              print(f"\n✅ Container '{cname}' recriado com a nova imagem!")
+          else:
+              print(f"⚠️ Start retornou {st}"); sys.exit(1)
+          PYEOF
+          python3 /tmp/deploy.py
 
       - name: Remover imagens Docker não utilizadas
+        env:
+          PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
+          PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
         run: |
           TOKEN=$(curl -k -s -X POST "https://191.233.21.33:9000/api/auth" \
             -H "Content-Type: application/json" \
-            -d '{"Username":"${{ vars.PORTAINER_USER_PROD }}","Password":"${{ secrets.PORTAINER_PASS_PROD }}"}' \
-            | grep -o '"jwt":"[^\"]*"' | cut -d':' -f2 | sed 's/["}]//g')
-          curl -k -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/images/prune" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json"
+            -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASS\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('jwt',''))")
+          if [ -n "$TOKEN" ]; then
+            curl -k -s -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/images/prune" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{}' -w "\nPrune HTTP %{http_code}"
+          fi
