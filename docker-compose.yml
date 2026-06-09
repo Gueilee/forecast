@@ -1,16 +1,14 @@
 version: '3.8'
 
 # ─── Forecast by Vendemmia — Stack Portainer ───────────────────────────────────
-# Copie este arquivo no Portainer > Stacks > Add Stack > Web editor
-# Configure as variáveis de ambiente no arquivo .env do servidor Azure
+# Imagem única (Azure ACR) que contém o app Next.js + sync daemon integrados.
+# Para atualizar: Portainer > Stacks > forecast > Pull and redeploy
 # ───────────────────────────────────────────────────────────────────────────────
 
 services:
-
-  # ── App Next.js ──────────────────────────────────────────────────────────────
   app:
-    image: ${REGISTRY:-ghcr.io/gueilee}/forecast-app:${TAG:-latest}
-    container_name: forecast-app
+    image: vdmprod.azurecr.io/samples/vendemmia-forecast:latest
+    container_name: vendemmia-forecast
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"
@@ -21,44 +19,23 @@ services:
       TURSO_AUTH_TOKEN:   ${TURSO_AUTH_TOKEN}
       # Auth
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      NEXTAUTH_URL:    ${NEXTAUTH_URL}
-      # E-mail (suporta DSN único ou variáveis individuais)
+      NEXTAUTH_URL:    ${NEXTAUTH_URL:-https://forecast.vendemmia.dev.br}
+      # E-mail
       MAILER_DSN:  ${MAILER_DSN}
-      MAILER_FROM: ${MAILER_FROM:-"Forecast Vendemmia <noreply@vendemmia.com.br>"}
-      EMAIL_HOST:   ${EMAIL_HOST:-}
-      EMAIL_PORT:   ${EMAIL_PORT:-587}
-      EMAIL_SECURE: ${EMAIL_SECURE:-false}
-      EMAIL_USER:   ${EMAIL_USER:-}
-      EMAIL_PASS:   ${EMAIL_PASS:-}
-      EMAIL_FROM:   ${EMAIL_FROM:-}
+      MAILER_FROM: ${MAILER_FROM:-naoresponda@vendemmia.com.br}
+      # Conexos Oracle (IP do servidor deve estar whitelistado)
+      CONEXOS_USER:    ${CONEXOS_USER:-CNXBI_VENDEMMIA}
+      CONEXOS_PASSWORD: ${CONEXOS_PASSWORD}
+      CONEXOS_HOST:    ${CONEXOS_HOST:-rds-vendemmia-uydge.conexos.cloud}
+      CONEXOS_PORT:    ${CONEXOS_PORT:-15003}
+      CONEXOS_SERVICE: ${CONEXOS_SERVICE:-CONEXOS}
+      SYNC_HOURS:      ${SYNC_HOURS:-6,18}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ── Sync daemon (Oracle → Turso) ─────────────────────────────────────────────
-  # Este container usa o IP fixo do servidor Azure para conectar ao Conexos Oracle
-  sync:
-    image: ${REGISTRY:-ghcr.io/gueilee}/forecast-sync:${TAG:-latest}
-    container_name: forecast-sync
-    restart: unless-stopped
-    environment:
-      # Turso
-      TURSO_URL:   ${TURSO_DATABASE_URL}
-      TURSO_TOKEN: ${TURSO_AUTH_TOKEN}
-      # Oracle / Conexos — IP deste servidor deve estar whitelistado no Conexos
-      ORACLE_USER:       ${CONEXOS_USER}
-      ORACLE_PASSWORD:   ${CONEXOS_PASSWORD}
-      ORACLE_CONNECTION: ${CONEXOS_HOST}:${CONEXOS_PORT}/${CONEXOS_SERVICE}
-      # Sync schedule: horários de execução separados por vírgula (padrão: 6h e 18h)
-      SYNC_HOURS: ${SYNC_HOURS:-6,18}
+      start_period: 30s
     logging:
       driver: json-file
       options:
