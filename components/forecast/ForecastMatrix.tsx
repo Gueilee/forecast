@@ -86,12 +86,12 @@ const BU_PALETTE: Record<string, { color: string; bg: string }> = {
 const LEVEL_INDENT = [0, 16, 32, 48, 64, 80] as const
 
 const LEVEL_BG = [
-  'rgba(66,44,118,0.06)',   // BU
-  'rgba(66,44,118,0.04)',   // COMERCIAL
-  'rgba(66,44,118,0.025)',  // 4PL
-  'rgba(66,44,118,0.015)',  // MODALIDADE
-  'rgba(66,44,118,0.008)',  // CONTA
-  '#ffffff',                // CLIENT
+  '#f4f2f7',  // BU
+  '#f7f6f9',  // COMERCIAL
+  '#f9f8fb',  // 4PL
+  '#fbfafc',  // MODALIDADE
+  '#fdfcfe',  // CONTA
+  '#ffffff',  // CLIENT
 ] as const
 
 const LEVEL_LABEL_COLOR = [
@@ -815,8 +815,8 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                   style={{ borderBottom: '1px solid rgba(66,44,118,0.05)', background: '#fff' }}
                 >
                   <td
-                    className="sticky left-0 z-10 py-2 group-hover/row:bg-purple-50/30 transition-colors"
-                    style={{ background: 'inherit', paddingLeft: `${indent + 8}px`, paddingRight: '8px',
+                    className="sticky left-0 z-10 py-2 group-hover/row:bg-[#f0ecff] transition-colors"
+                    style={{ background: '#fff', paddingLeft: `${indent + 8}px`, paddingRight: '8px',
                       borderRight: '1px solid rgba(66,44,118,0.08)' }}
                     title={c.nameReduced}
                   >
