@@ -49,6 +49,7 @@ model Client {
   conexosCode       Int?
   conexosName       String?
   isActive          Boolean            @default(true)
+  faturadoYtd       Float?             @default(0)
   sortOrder         Int                @default(0)   @unique
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -166,6 +167,16 @@ model WeekComment {
   user        User     @relation(fields: [userId], references: [id])
 
   @@index([clientId, year, month])
+}
+
+model BuYtdFaturado {
+  id          String   @id @default(cuid())
+  entity      String
+  year        Int
+  faturadoYtd Float    @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([entity, year])
 }
 
 model SyncJob {

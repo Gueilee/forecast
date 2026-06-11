@@ -17,30 +17,19 @@ async function getBuData() {
 
   const results = await Promise.all(
     entities.map(async (entity) => {
-      const [budget, weeklyActual, budgetFaturado] = await Promise.all([
+      const [budgetAgg, ytdRow] = await Promise.all([
         db.budgetEntry.aggregate({
           where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
           _sum: { plan: true, fcMonth: true },
         }),
-        // Faturado real: ActualWeekly (mesma fonte do Forecast Matrix)
-        db.actualWeekly.aggregate({
-          where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
-          _sum: { totFaturado: true },
-        }),
-        // Fallback: faturado do Excel (BudgetEntry.faturado) — usado quando Conexos ainda não sincronizou
-        db.budgetEntry.aggregate({
-          where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
-          _sum: { faturado: true },
-        }),
+        db.buYtdFaturado.findFirst({ where: { entity, year: YEAR } }),
       ])
 
-      const plan      = budget._sum.plan ?? 0
-      const fc        = budget._sum.fcMonth ?? plan
-      const cnxsFat   = weeklyActual._sum.totFaturado ?? 0
-      const excelFat  = budgetFaturado._sum.faturado ?? 0
-      const faturado  = cnxsFat > 0 ? cnxsFat : excelFat
-      const desvio    = faturado - plan
-      const atingPct  = plan > 0 ? (faturado / plan) * 100 : 0
+      const plan     = budgetAgg._sum.plan ?? 0
+      const fc       = budgetAgg._sum.fcMonth ?? plan
+      const faturado = ytdRow?.faturadoYtd ?? 0
+      const desvio   = faturado - plan
+      const atingPct = plan > 0 ? (faturado / plan) * 100 : 0
 
       return { entity, plan, fc, faturado, desvio, mbPct: 0, atingPct }
     })
