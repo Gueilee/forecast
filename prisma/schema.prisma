@@ -70,6 +70,8 @@ model BudgetEntry {
   withoutOrders Float?
   mbPlanPct     Float?
   mbFcPct       Float?
+  lastWeek      Float?
+  faturado      Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)

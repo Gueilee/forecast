@@ -182,7 +182,7 @@ export default function SyncPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'rgba(66,44,118,0.4)' }}>Automático</p>
             <div className="flex items-center gap-2 mt-1">
               <Clock className="w-4 h-4" style={{ color: '#422c76' }} />
-              <p className="text-sm font-semibold" style={{ color: '#414042' }}>06:00 e 18:00</p>
+              <p className="text-sm font-semibold" style={{ color: '#414042' }}>08h–21h (de hora em hora)</p>
             </div>
             <p className="text-xs mt-1" style={{ color: '#9a8fb5' }}>Horário de Brasília</p>
           </div>

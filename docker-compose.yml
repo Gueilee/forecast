@@ -29,7 +29,7 @@ services:
       CONEXOS_HOST:    ${CONEXOS_HOST:-rds-vendemmia-uydge.conexos.cloud}
       CONEXOS_PORT:    ${CONEXOS_PORT:-15003}
       CONEXOS_SERVICE: ${CONEXOS_SERVICE:-CONEXOS}
-      SYNC_HOURS:      ${SYNC_HOURS:-6,18}
+      SYNC_HOURS:      ${SYNC_HOURS:-8,9,10,11,12,13,14,15,16,17,18,19,20,21}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
       interval: 30s

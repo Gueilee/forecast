@@ -1,22 +1,22 @@
 import { db } from '@/lib/db'
 import { Header } from '@/components/layout/Header'
-import { ForecastMatrix, MatrixRow } from '@/components/forecast/ForecastMatrix'
+import { ForecastMatrix, ClientData } from '@/components/forecast/ForecastMatrix'
 
 const YEAR = 2026
 
-async function getMatrixData(): Promise<MatrixRow[]> {
-  const [clients, budgetEntries, weeklyActuals] = await Promise.all([
+async function getMatrixData(): Promise<ClientData[]> {
+  const [clients, budgetEntries, weeklyActuals, comments] = await Promise.all([
     db.client.findMany({
       where: { isActive: true },
       select: {
         id: true,
         nameReduced: true,
-        accountManager: true,
+        nameChart: true,
         entity: true,
-        modality: true,
         commercialType: true,
         pl4Bu: true,
-        category: true,
+        modality: true,
+        accountManager: true,
         sortOrder: true,
       },
       orderBy: { sortOrder: 'asc' },
@@ -30,74 +30,92 @@ async function getMatrixData(): Promise<MatrixRow[]> {
         fcMonth: true,
         orders: true,
         withoutOrders: true,
+        lastWeek: true,
+        faturado: true,   // histórico do Excel (fallback quando Conexos ainda não sincronizou)
+        mbPlanPct: true,
+        mbFcPct: true,
       },
     }),
     db.actualWeekly.findMany({
       where: { year: YEAR },
-      select: {
-        clientId: true,
-        month: true,
-        weekOfMonth: true,
-        totFaturado: true,
-      },
+      select: { clientId: true, month: true, totFaturado: true },
+    }),
+    db.weekComment.findMany({
+      where: { year: YEAR, weekOfMonth: null },
+      select: { clientId: true, month: true, comment: true },
+      orderBy: { updatedAt: 'desc' },
     }),
   ])
 
-  const budgetMap = new Map<string, (typeof budgetEntries)[0]>()
+  // Faturado real do Conexos (soma de ActualWeekly por cliente/mês)
+  const fatMap = new Map<string, number>()
+  for (const w of weeklyActuals) {
+    const k = `${w.clientId}:${w.month}`
+    fatMap.set(k, (fatMap.get(k) ?? 0) + w.totFaturado)
+  }
+
+  // Budget entries por clientId:month
+  const budgetMap = new Map<string, typeof budgetEntries[0]>()
   for (const b of budgetEntries) {
     budgetMap.set(`${b.clientId}:${b.month}`, b)
   }
 
-  const weekMap = new Map<string, number>()
-  for (const w of weeklyActuals) {
-    const key = `${w.clientId}:${w.month}:${w.weekOfMonth}`
-    weekMap.set(key, (weekMap.get(key) ?? 0) + w.totFaturado)
+  // Comentários por clientId:month (mais recente por ordering)
+  const commentMap = new Map<string, string>()
+  for (const c of comments) {
+    const k = `${c.clientId}:${c.month}`
+    if (!commentMap.has(k)) commentMap.set(k, c.comment)
   }
 
-  return clients.map((c) => {
-    const months: MatrixRow['months'] = {}
+  return clients.map(c => {
+    const months: ClientData['months'] = {}
+
     for (let m = 1; m <= 12; m++) {
-      const b = budgetMap.get(`${c.id}:${m}`)
-      const weeks: Record<number, number> = {}
-      for (let w = 1; w <= 5; w++) {
-        weeks[w] = weekMap.get(`${c.id}:${m}:${w}`) ?? 0
-      }
-      const faturado = Object.values(weeks).reduce((a, v) => a + v, 0)
+      const b    = budgetMap.get(`${c.id}:${m}`)
+      const cnxs = fatMap.get(`${c.id}:${m}`) ?? 0
+
+      // Faturado: prioridade Conexos (ActualWeekly), fallback Excel (BudgetEntry.faturado)
+      const faturado = cnxs > 0 ? cnxs : (b?.faturado ?? 0)
+
       months[m] = {
-        plan: b?.plan ?? 0,
-        fc: b?.fcMonth ?? null,
-        faturado,
-        orders: b?.orders ?? null,
+        plan:          b?.plan ?? 0,
+        fc:            b?.fcMonth ?? null,
+        orders:        b?.orders ?? null,
         withoutOrders: b?.withoutOrders ?? null,
-        weeks,
+        faturado,
+        lastWeek:      b?.lastWeek ?? null,
+        mbPlan:        b?.mbPlanPct ?? null,
+        mbFc:          b?.mbFcPct  ?? null,
+        weekComment:   commentMap.get(`${c.id}:${m}`) ?? null,
       }
     }
+
     return {
-      id: c.id,
-      sortOrder: c.sortOrder,
-      nameReduced: c.nameReduced,
-      accountManager: c.accountManager,
-      entity: c.entity,
-      modality: c.modality,
+      id:             c.id,
+      nameReduced:    c.nameReduced,
+      nameChart:      c.nameChart,
+      entity:         c.entity,
       commercialType: c.commercialType,
-      pl4Bu: c.pl4Bu,
-      category: c.category,
+      pl4Bu:          c.pl4Bu,
+      modality:       c.modality,
+      accountManager: c.accountManager,
+      sortOrder:      c.sortOrder,
       months,
     }
   })
 }
 
 export default async function ForecastPage() {
-  const rows = await getMatrixData()
+  const clients      = await getMatrixData()
   const currentMonth = new Date().getMonth() + 1
 
   return (
     <div className="h-full flex flex-col">
       <Header
         title="Forecast Matrix"
-        subtitle={`Plano Orçamentário ${YEAR} · ${rows.length} linhas de serviço`}
+        subtitle={`Plano Orçamentário ${YEAR} · ${clients.length} clientes`}
       />
-      <ForecastMatrix rows={rows} year={YEAR} currentMonth={currentMonth} />
+      <ForecastMatrix clients={clients} year={YEAR} currentMonth={currentMonth} />
     </div>
   )
 }

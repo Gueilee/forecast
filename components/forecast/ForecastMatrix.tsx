@@ -1,98 +1,452 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
-import { ChevronRight, ChevronDown, Search } from 'lucide-react'
-import { cn, MONTH_SHORT } from '@/lib/utils'
+import { useState, useMemo, useCallback, useRef, ReactNode, CSSProperties } from 'react'
+import { ChevronRight, ChevronDown, Search, Lock } from 'lucide-react'
 
-export type MonthData = {
-  plan: number
-  fc: number | null
-  faturado: number
-  orders: number | null
+// ── Tipos ────────────────────────────────────────────────────────────────────
+
+export type MonthEntry = {
+  plan:         number
+  fc:           number | null
+  orders:       number | null
   withoutOrders: number | null
-  weeks: Record<number, number>
+  faturado:     number          // ActualWeekly (Conexos) + fallback Excel
+  lastWeek:     number | null
+  mbPlan:       number | null
+  mbFc:         number | null
+  weekComment:  string | null
 }
 
-export type MatrixRow = {
-  id: string
-  sortOrder: number
-  nameReduced: string
-  accountManager: string | null
-  entity: string | null
-  modality: string | null
-  commercialType: string | null
-  pl4Bu: string | null
-  category: string | null
-  months: Record<number, MonthData>
+export type ClientData = {
+  id:             string
+  nameReduced:    string
+  nameChart:      string | null
+  entity:         string | null   // BU
+  commercialType: string | null   // COMERCIAL
+  pl4Bu:          string | null   // 4PL
+  modality:       string | null   // MODALIDADE
+  accountManager: string | null   // CONTA
+  sortOrder:      number
+  months:         Record<number, MonthEntry>
 }
 
-type Props = {
-  rows: MatrixRow[]
-  year: number
+type MonthTotals = {
+  plan: number; fc: number; faturado: number
+  lastWeek: number; mbPlan: number; mbFc: number
+}
+
+type GroupNode = {
+  type:         'group'
+  key:          string
+  parentKey:    string
+  ancestorKeys: string[]
+  level:        0 | 1 | 2 | 3 | 4
+  label:        string
+  childCount:   number
+  monthTotals:  Record<number, MonthTotals>
+}
+
+type ClientNode = {
+  type:         'client'
+  key:          string
+  parentKey:    string
+  ancestorKeys: string[]
+  level:        5
+  data:         ClientData
+}
+
+type TreeNode = GroupNode | ClientNode
+
+export type ForecastMatrixProps = {
+  clients:      ClientData[]
+  year:         number
   currentMonth: number
 }
 
-// Brand colors
-const LILAS = '#422c76'
+// ── Constantes ────────────────────────────────────────────────────────────────
+
+const LILAS   = '#422c76'
 const MAGENTA = '#ff2f69'
-const VERDE = '#01E18E'
+const VERDE   = '#01E18E'
 const GRAFITE = '#414042'
 const OFFWHITE = '#faf9f5'
 
-function fmt(v: number): string {
-  if (v === 0) return '—'
+const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+const MONTHS      = Array.from({ length: 12 }, (_, i) => i + 1)
+
+const BU_PALETTE: Record<string, { color: string; bg: string }> = {
+  'VCI':       { color: LILAS,    bg: 'rgba(66,44,118,0.12)' },
+  'ARM - GRV': { color: MAGENTA,  bg: 'rgba(255,47,105,0.12)' },
+  'ARM - ITV': { color: '#00b870',bg: 'rgba(1,225,142,0.12)' },
+  'ARM - NVG': { color: '#d97706',bg: 'rgba(245,158,11,0.12)' },
+  'TRP':       { color: '#6b6570',bg: 'rgba(107,101,112,0.1)' },
+}
+
+const LEVEL_INDENT = [0, 16, 32, 48, 64, 80] as const
+
+const LEVEL_BG = [
+  'rgba(66,44,118,0.06)',   // BU
+  'rgba(66,44,118,0.04)',   // COMERCIAL
+  'rgba(66,44,118,0.025)',  // 4PL
+  'rgba(66,44,118,0.015)',  // MODALIDADE
+  'rgba(66,44,118,0.008)',  // CONTA
+  '#ffffff',                // CLIENT
+] as const
+
+const LEVEL_LABEL_COLOR = [
+  LILAS,
+  '#4a3a7a',
+  '#5a4e80',
+  '#6b617a',
+  '#7a7080',
+  GRAFITE,
+] as const
+
+type ExpCol = {
+  key:       string
+  label:     string
+  w:         number
+  align:     'right' | 'left'
+  editable?: boolean
+  lockable?: boolean
+}
+
+// Colunas quando MÊS EXPANDIDO (11 colunas):
+const EXP_COLS: ExpCol[] = [
+  { key: 'plan',          label: 'PLANO',       w: 72,  align: 'right' },
+  { key: 'fc',            label: 'FORECAST',    w: 72,  align: 'right', editable: true, lockable: true },
+  { key: 'orders',        label: 'PEDIDO',      w: 68,  align: 'right', editable: true, lockable: true },
+  { key: 'withoutOrders', label: 'S/PEDIDO',    w: 68,  align: 'right' },
+  { key: 'faturado',      label: 'FATURADO',    w: 72,  align: 'right' },
+  { key: 'desvioPlano',   label: 'DESV.PLANO',  w: 72,  align: 'right' },
+  { key: 'aFaturar',      label: 'A FATURAR',   w: 72,  align: 'right' },
+  { key: 'lastWeek',      label: 'ÚLT.SEM.',    w: 68,  align: 'right', editable: true },
+  { key: 'mbPlan',        label: 'MB PLAN',     w: 68,  align: 'right', editable: true },
+  { key: 'mbFc',          label: 'MB FC',       w: 68,  align: 'right' },
+  { key: 'weekComment',   label: 'COMENTÁRIO',  w: 140, align: 'left',  editable: true },
+]
+
+const EXP_W_TOTAL = EXP_COLS.reduce((s, c) => s + c.w, 0)  // 920px
+const COL_W  = 130 // collapsed: PLANO + FC
+const COL_W2 = 65  // each collapsed sub-col
+const STICKY_W = 272
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmt(v: number | null | undefined, currency = true): string {
+  if (v == null || v === 0) return '—'
   const abs = Math.abs(v)
-  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `${Math.round(v / 1_000)}K`
+  const sign = v < 0 ? '-' : ''
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000)     return `${sign}${Math.round(abs / 1_000)}K`
   return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 }
 
-function desvPct(plan: number, actual: number): number | null {
-  if (plan === 0) return null
-  return ((actual - plan) / plan) * 100
+function desvPct(base: number, actual: number): number | null {
+  if (!base) return null
+  return ((actual - base) / base) * 100
 }
 
-function pctStyle(pct: number | null, hasFat: boolean): { color: string; fontWeight?: number } {
-  if (pct === null || !hasFat) return { color: 'rgba(65,64,66,0.2)' }
-  if (pct >= -5) return { color: '#00b870', fontWeight: 700 }
-  if (pct >= -20) return { color: '#d97706', fontWeight: 700 }
-  return { color: MAGENTA, fontWeight: 700 }
+function pctColor(pct: number | null): string {
+  if (pct == null) return 'rgba(65,64,66,0.2)'
+  if (pct >= 0)    return '#00b870'
+  if (pct >= -10)  return '#d97706'
+  return MAGENTA
 }
 
-function pctBg(pct: number | null, hasFat: boolean): string {
-  if (pct === null || !hasFat) return ''
-  if (pct >= -5) return 'rgba(1,225,142,0.08)'
-  if (pct >= -20) return 'rgba(245,158,11,0.08)'
-  return 'rgba(255,47,105,0.08)'
+function groupBy<T>(arr: T[], fn: (item: T) => string): Record<string, T[]> {
+  const out: Record<string, T[]> = {}
+  for (const item of arr) {
+    const k = fn(item)
+    if (!out[k]) out[k] = []
+    out[k].push(item)
+  }
+  return out
 }
 
-// Column widths
-const CW = { name: 168, am: 90, entity: 64, tipo: 72, cat: 130 } as const
-const LEFT_W = CW.name + CW.am + CW.entity + CW.tipo + CW.cat
-const MONTH_W = 90
-const EXP_W = [72, 72, 72, 60] as const
-
-// BU badge colors
-const BU_COLOR: Record<string, { color: string; bg: string }> = {
-  'VCI':       { color: LILAS,    bg: 'rgba(66,44,118,0.1)' },
-  'ARM - GRV': { color: MAGENTA,  bg: 'rgba(255,47,105,0.1)' },
-  'ARM - ITV': { color: '#00b870',bg: 'rgba(1,225,142,0.1)' },
-  'ARM - NVG': { color: '#d97706',bg: 'rgba(245,158,11,0.1)' },
-  'TRP':       { color: GRAFITE,  bg: 'rgba(65,64,66,0.08)' },
+function isFcLocked(): boolean {
+  const now = new Date()
+  const day = now.getDay()
+  const hour = now.getHours()
+  if (day === 4 && hour >= 22) return true
+  if (day === 5 || day === 6 || day === 0) return true
+  return false
 }
 
-const MONTHS_ARRAY = Array.from({ length: 12 }, (_, i) => i + 1)
+function sumTotals(clients: ClientData[]): Record<number, MonthTotals> {
+  const t: Record<number, MonthTotals> = {}
+  for (let m = 1; m <= 12; m++) {
+    t[m] = { plan: 0, fc: 0, faturado: 0, lastWeek: 0, mbPlan: 0, mbFc: 0 }
+    for (const c of clients) {
+      const md = c.months[m]
+      if (!md) continue
+      t[m].plan     += md.plan
+      t[m].fc       += md.fc ?? md.plan
+      t[m].faturado += md.faturado
+      t[m].lastWeek += md.lastWeek ?? 0
+      t[m].mbPlan   += md.mbPlan ?? 0
+      t[m].mbFc     += md.mbFc ?? 0
+    }
+  }
+  return t
+}
 
-const HEADER_BG = LILAS
-const HEADER_CURR_BG = '#ff2f69'
+function buildTree(clients: ClientData[]): TreeNode[] {
+  const nodes: TreeNode[] = []
 
-export function ForecastMatrix({ rows, year, currentMonth }: Props) {
-  const [expandedMonths, setExpandedMonths] = useState<Set<number>>(
-    () => new Set([currentMonth])
+  const sorted = [...clients].sort((a, b) =>
+    (a.entity ?? '').localeCompare(b.entity ?? '', 'pt-BR') ||
+    (a.commercialType ?? '').localeCompare(b.commercialType ?? '', 'pt-BR') ||
+    (a.pl4Bu ?? '').localeCompare(b.pl4Bu ?? '', 'pt-BR') ||
+    (a.modality ?? '').localeCompare(b.modality ?? '', 'pt-BR') ||
+    (a.accountManager ?? '').localeCompare(b.accountManager ?? '', 'pt-BR') ||
+    (a.nameReduced ?? '').localeCompare(b.nameReduced ?? '', 'pt-BR')
   )
-  const [search, setSearch] = useState('')
-  const [filterEntity, setFilterEntity] = useState('all')
-  const [filterAM, setFilterAM] = useState('all')
+
+  const byBU = groupBy(sorted, c => c.entity ?? '—')
+  for (const [bu, buClients] of Object.entries(byBU)) {
+    const buKey = `bu:${bu}`
+    nodes.push({
+      type: 'group', level: 0, key: buKey, parentKey: '', ancestorKeys: [],
+      label: bu, childCount: buClients.length, monthTotals: sumTotals(buClients),
+    })
+
+    const byCOM = groupBy(buClients, c => c.commercialType ?? '—')
+    for (const [com, comClients] of Object.entries(byCOM)) {
+      const comKey = `${buKey}|com:${com}`
+      nodes.push({
+        type: 'group', level: 1, key: comKey, parentKey: buKey, ancestorKeys: [buKey],
+        label: com, childCount: comClients.length, monthTotals: sumTotals(comClients),
+      })
+
+      const byPL4 = groupBy(comClients, c => c.pl4Bu ?? '—')
+      for (const [pl4, pl4Clients] of Object.entries(byPL4)) {
+        const pl4Key = `${comKey}|pl4:${pl4}`
+        nodes.push({
+          type: 'group', level: 2, key: pl4Key, parentKey: comKey, ancestorKeys: [buKey, comKey],
+          label: pl4, childCount: pl4Clients.length, monthTotals: sumTotals(pl4Clients),
+        })
+
+        const byMOD = groupBy(pl4Clients, c => c.modality ?? '—')
+        for (const [mod, modClients] of Object.entries(byMOD)) {
+          const modKey = `${pl4Key}|mod:${mod}`
+          nodes.push({
+            type: 'group', level: 3, key: modKey, parentKey: pl4Key, ancestorKeys: [buKey, comKey, pl4Key],
+            label: mod, childCount: modClients.length, monthTotals: sumTotals(modClients),
+          })
+
+          const byCNTA = groupBy(modClients, c => c.accountManager ?? '—')
+          for (const [cnt, cntClients] of Object.entries(byCNTA)) {
+            const cntKey = `${modKey}|cnt:${cnt}`
+            nodes.push({
+              type: 'group', level: 4, key: cntKey, parentKey: modKey, ancestorKeys: [buKey, comKey, pl4Key, modKey],
+              label: cnt, childCount: cntClients.length, monthTotals: sumTotals(cntClients),
+            })
+            for (const c of cntClients) {
+              nodes.push({
+                type: 'client', level: 5, key: `c:${c.id}`, parentKey: cntKey,
+                ancestorKeys: [buKey, comKey, pl4Key, modKey, cntKey],
+                data: c,
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+  return nodes
+}
+
+// ── Célula editável ───────────────────────────────────────────────────────────
+
+type EditCellProps = {
+  value:     number | null
+  onSave:    (v: number | null) => Promise<void>
+  locked?:   boolean
+  numeric?:  boolean
+  isCurrent: boolean
+  isHistory: boolean
+}
+
+function EditCell({ value, onSave, locked, isCurrent, isHistory }: EditCellProps) {
+  const [editing, setEditing] = useState(false)
+  const [local, setLocal]     = useState('')
+  const ref = useRef<HTMLInputElement>(null)
+
+  const startEdit = () => {
+    if (locked || isHistory) return
+    setLocal(value != null && value !== 0 ? String(value) : '')
+    setEditing(true)
+    setTimeout(() => ref.current?.select(), 0)
+  }
+
+  const commit = async () => {
+    setEditing(false)
+    const n = local.trim() === '' ? null : Number(local.replace(',', '.'))
+    if (!isNaN(n as number) && n !== value) await onSave(n)
+  }
+
+  if (locked) return (
+    <div className="flex items-center justify-end gap-1 w-full" title="Bloqueado após quinta 22h">
+      <Lock className="w-3 h-3 opacity-30 flex-shrink-0" />
+      <span className="tabular-nums" style={{ color: value ? GRAFITE : 'rgba(65,64,66,0.2)' }}>
+        {value ? fmt(value) : '—'}
+      </span>
+    </div>
+  )
+
+  if (isHistory) return (
+    <span className="tabular-nums" style={{ color: value ? '#00b870' : 'rgba(65,64,66,0.15)' }}>
+      {value ? fmt(value) : '—'}
+    </span>
+  )
+
+  if (editing) return (
+    <input
+      ref={ref}
+      type="number"
+      value={local}
+      onChange={e => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+      className="w-full text-right outline-none bg-transparent border-b tabular-nums text-xs"
+      style={{ borderColor: LILAS, color: LILAS }}
+    />
+  )
+
+  return (
+    <button
+      onClick={startEdit}
+      className="w-full text-right tabular-nums cursor-text group/ecell transition-colors"
+      title={isCurrent ? 'Clique para editar' : ''}
+    >
+      <span style={{ color: value ? GRAFITE : 'rgba(65,64,66,0.2)' }}>
+        {value ? fmt(value) : <span className="group-hover/ecell:text-purple-400">—</span>}
+      </span>
+    </button>
+  )
+}
+
+function CommentCell({
+  value, onSave, isCurrent,
+}: { value: string | null; onSave: (v: string) => Promise<void>; isCurrent: boolean }) {
+  const [editing, setEditing] = useState(false)
+  const [local, setLocal]     = useState('')
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const startEdit = () => {
+    if (!isCurrent) return
+    setLocal(value ?? '')
+    setEditing(true)
+    setTimeout(() => ref.current?.focus(), 0)
+  }
+
+  const commit = async () => {
+    setEditing(false)
+    if (local !== (value ?? '')) await onSave(local)
+  }
+
+  if (editing) return (
+    <textarea
+      ref={ref}
+      value={local}
+      onChange={e => setLocal(e.target.value)}
+      onBlur={commit}
+      rows={2}
+      className="w-full text-xs outline-none bg-white border rounded p-1 resize-none"
+      style={{ borderColor: LILAS, color: GRAFITE, minWidth: '130px' }}
+    />
+  )
+
+  return (
+    <button
+      onClick={startEdit}
+      className="w-full text-left text-xs cursor-text truncate max-w-[130px]"
+      title={value ?? ''}
+      style={{ color: value ? GRAFITE : 'rgba(65,64,66,0.2)' }}
+    >
+      {value || (isCurrent ? <span className="italic opacity-40">Adicionar...</span> : '—')}
+    </button>
+  )
+}
+
+// ── Componente Principal ──────────────────────────────────────────────────────
+
+export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixProps) {
+  const fcLocked = isFcLocked()
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [expandedMonths, setExpandedMonths] = useState<Set<number>>(() => new Set([currentMonth]))
+  const [filterBU,    setFilterBU]    = useState('all')
+  const [filterCOM,   setFilterCOM]   = useState('all')
+  const [filterPL4,   setFilterPL4]   = useState('all')
+  const [filterMOD,   setFilterMOD]   = useState('all')
+  const [filterCNTA,  setFilterCNTA]  = useState('all')
+  const [search,      setSearch]      = useState('')
+
+  // Valores editados localmente (otimista)
+  const [localEdits, setLocalEdits] = useState<Map<string, number | string | null>>(() => new Map())
+
+  const treeNodes = useMemo(() => buildTree(clients), [clients])
+
+  // Filtrar clientes que batem com os filtros ativos
+  const filteredIds = useMemo(() => {
+    const ids = new Set<string>()
+    const q = search.toLowerCase()
+    for (const n of treeNodes) {
+      if (n.type !== 'client') continue
+      const c = n.data
+      if (filterBU   !== 'all' && c.entity         !== filterBU)   continue
+      if (filterCOM  !== 'all' && c.commercialType  !== filterCOM)  continue
+      if (filterPL4  !== 'all' && c.pl4Bu           !== filterPL4)  continue
+      if (filterMOD  !== 'all' && c.modality        !== filterMOD)  continue
+      if (filterCNTA !== 'all' && c.accountManager  !== filterCNTA) continue
+      if (q && !(c.nameReduced ?? '').toLowerCase().includes(q)) continue
+      ids.add(c.id)
+    }
+    return ids
+  }, [treeNodes, filterBU, filterCOM, filterPL4, filterMOD, filterCNTA, search])
+
+  // Grupos que têm ao menos 1 filho filtrado
+  const activeGroups = useMemo(() => {
+    const gs = new Set<string>()
+    for (const n of treeNodes) {
+      if (n.type !== 'client') continue
+      if (!filteredIds.has(n.data.id)) continue
+      for (const ak of n.ancestorKeys) gs.add(ak)
+    }
+    return gs
+  }, [treeNodes, filteredIds])
+
+  const visibleNodes = useMemo(() => {
+    return treeNodes.filter(n => {
+      if (n.level === 0) return activeGroups.has(n.key)  // BU sempre visível se tem filhos filtrados
+      if (!expandedGroups.has(n.parentKey)) return false
+      if (n.type === 'group')  return activeGroups.has(n.key)
+      return filteredIds.has(n.data.id)
+    })
+  }, [treeNodes, expandedGroups, filteredIds, activeGroups])
+
+  // Grand totals (only filtered clients)
+  const grandTotals = useMemo(() => {
+    const filtered = clients.filter(c => filteredIds.has(c.id))
+    return sumTotals(filtered)
+  }, [clients, filteredIds])
+
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        // Colapsar: remove o grupo e todos os descendentes
+        for (const k of next) {
+          if (k === key || k.startsWith(key + '|')) next.delete(k)
+        }
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }, [])
 
   const toggleMonth = useCallback((m: number) => {
     setExpandedMonths(prev => {
@@ -102,456 +456,546 @@ export function ForecastMatrix({ rows, year, currentMonth }: Props) {
     })
   }, [])
 
-  const entities = useMemo(() => {
-    const s = new Set<string>()
-    for (const r of rows) if (r.entity) s.add(r.entity)
-    return Array.from(s).sort()
-  }, [rows])
+  const getLocal = (clientId: string, month: number, field: string) => {
+    const k = `${clientId}:${month}:${field}`
+    return localEdits.has(k) ? localEdits.get(k) : undefined
+  }
 
-  const accountManagers = useMemo(() => {
-    const s = new Set<string>()
-    for (const r of rows) if (r.accountManager) s.add(r.accountManager)
-    return Array.from(s).sort()
-  }, [rows])
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return rows.filter(r => {
-      if (filterEntity !== 'all' && r.entity !== filterEntity) return false
-      if (filterAM !== 'all' && r.accountManager !== filterAM) return false
-      if (q && !r.nameReduced.toLowerCase().includes(q) &&
-              !r.accountManager?.toLowerCase().includes(q) &&
-              !r.entity?.toLowerCase().includes(q) &&
-              !r.category?.toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [rows, search, filterEntity, filterAM])
-
-  const totals = useMemo(() => {
-    const t: Record<number, { plan: number; fc: number; faturado: number }> = {}
-    for (let m = 1; m <= 12; m++) t[m] = { plan: 0, fc: 0, faturado: 0 }
-    for (const row of filtered) {
-      for (let m = 1; m <= 12; m++) {
-        const md = row.months[m]
-        if (!md) continue
-        t[m].plan += md.plan
-        t[m].fc += md.fc ?? md.plan
-        t[m].faturado += md.faturado
-      }
+  const saveEntry = async (clientId: string, month: number, field: string, value: number | null) => {
+    // Optimistic update
+    const k = `${clientId}:${month}:${field}`
+    setLocalEdits(prev => new Map(prev).set(k, value))
+    try {
+      await fetch('/api/forecast/entry', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, year, month, field, value }),
+      })
+    } catch {
+      // Revert on error
+      setLocalEdits(prev => { const m = new Map(prev); m.delete(k); return m })
     }
-    return t
-  }, [filtered])
+  }
 
-  const annualPlanTotal = useMemo(
-    () => Object.values(totals).reduce((a, t) => a + t.plan, 0),
-    [totals]
-  )
+  const saveComment = async (clientId: string, month: number, comment: string) => {
+    const k = `${clientId}:${month}:weekComment`
+    setLocalEdits(prev => new Map(prev).set(k, comment))
+    try {
+      await fetch('/api/forecast/comment', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, year, month, comment }),
+      })
+    } catch {
+      setLocalEdits(prev => { const m = new Map(prev); m.delete(k); return m })
+    }
+  }
 
-  const tableMinWidth =
-    LEFT_W +
-    MONTHS_ARRAY.reduce((a, m) =>
-      a + (expandedMonths.has(m) ? EXP_W.reduce((s, w) => s + w, 0) : MONTH_W), 0
-    ) + MONTH_W
+  // Compute min-width
+  const tableMinWidth = STICKY_W + MONTHS.reduce((s, m) =>
+    s + (expandedMonths.has(m) ? EXP_W_TOTAL : COL_W), 0
+  ) + 88  // anual
+
+  // Options for filter dropdowns
+  const opts = useMemo(() => {
+    const bu = new Set<string>(), com = new Set<string>(),
+      pl4 = new Set<string>(), mod = new Set<string>(), cnt = new Set<string>()
+    for (const c of clients) {
+      if (c.entity)         bu.add(c.entity)
+      if (c.commercialType) com.add(c.commercialType)
+      if (c.pl4Bu)          pl4.add(c.pl4Bu)
+      if (c.modality)       mod.add(c.modality)
+      if (c.accountManager) cnt.add(c.accountManager)
+    }
+    return {
+      bu:  [...bu].sort(),
+      com: [...com].sort(),
+      pl4: [...pl4].sort(),
+      mod: [...mod].sort(),
+      cnt: [...cnt].sort(),
+    }
+  }, [clients])
+
+  const filterSel = (filterBU !== 'all' || filterCOM !== 'all' || filterPL4 !== 'all' ||
+    filterMOD !== 'all' || filterCNTA !== 'all' || search !== '')
+
+  const resetFilters = () => {
+    setFilterBU('all'); setFilterCOM('all'); setFilterPL4('all')
+    setFilterMOD('all'); setFilterCNTA('all'); setSearch('')
+  }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden" style={{ background: OFFWHITE }}>
 
-      {/* Filter bar */}
+      {/* ── Barra de filtros ─────────────────────────────────────────────── */}
       <div
         className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0 flex-wrap"
         style={{
-          background: '#ffffff',
+          background: '#fff',
           borderBottom: '1px solid rgba(66,44,118,0.1)',
           boxShadow: '0 1px 8px rgba(66,44,118,0.05)',
         }}
       >
+        {/* Busca */}
         <div className="relative">
-          <Search
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-            style={{ color: '#9a8fb5' }}
-          />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: '#9a8fb5' }} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar cliente, AM ou BU..."
-            className="pl-8 pr-3 py-1.5 text-xs rounded-xl w-56 focus:outline-none focus:ring-2 transition-all"
-            style={{
-              background: OFFWHITE,
-              border: '1.5px solid rgba(66,44,118,0.15)',
-              color: GRAFITE,
-            }}
+            placeholder="Buscar cliente..."
+            className="pl-8 pr-3 py-1.5 text-xs rounded-xl w-48 focus:outline-none"
+            style={{ background: OFFWHITE, border: '1.5px solid rgba(66,44,118,0.15)', color: GRAFITE }}
           />
         </div>
 
-        <select
-          value={filterEntity}
-          onChange={e => setFilterEntity(e.target.value)}
-          className="text-xs rounded-xl px-2 py-1.5 focus:outline-none focus:ring-2"
-          style={{
-            background: OFFWHITE,
-            border: '1.5px solid rgba(66,44,118,0.15)',
-            color: GRAFITE,
-          }}
-        >
-          <option value="all">Todas as BUs</option>
-          {entities.map(e => <option key={e} value={e}>{e}</option>)}
-        </select>
+        {/* Filtros */}
+        {([
+          ['BU', filterBU,   setFilterBU,   opts.bu,  'Todas as BUs'],
+          ['COMERCIAL', filterCOM, setFilterCOM, opts.com, 'Todo Comercial'],
+          ['4PL', filterPL4, setFilterPL4, opts.pl4, 'Todo 4PL'],
+          ['MODALIDADE', filterMOD, setFilterMOD, opts.mod, 'Todas Modalidades'],
+          ['CONTA', filterCNTA, setFilterCNTA, opts.cnt, 'Todas Contas'],
+        ] as const).map(([label, val, setter, options, placeholder]) => (
+          <div key={label} className="flex items-center gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>{label}</span>
+            <select
+              value={val}
+              onChange={e => (setter as (v: string) => void)(e.target.value)}
+              className="text-xs rounded-xl px-2 py-1.5 focus:outline-none"
+              style={{ background: val !== 'all' ? 'rgba(66,44,118,0.08)' : OFFWHITE,
+                border: '1.5px solid rgba(66,44,118,0.15)', color: val !== 'all' ? LILAS : GRAFITE,
+                fontWeight: val !== 'all' ? 700 : 400 }}
+            >
+              <option value="all">{placeholder}</option>
+              {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+        ))}
 
-        <select
-          value={filterAM}
-          onChange={e => setFilterAM(e.target.value)}
-          className="text-xs rounded-xl px-2 py-1.5 focus:outline-none focus:ring-2"
-          style={{
-            background: OFFWHITE,
-            border: '1.5px solid rgba(66,44,118,0.15)',
-            color: GRAFITE,
-          }}
-        >
-          <option value="all">Todos os Account Managers</option>
-          {accountManagers.map(am => <option key={am} value={am}>{am}</option>)}
-        </select>
+        {filterSel && (
+          <button
+            onClick={resetFilters}
+            className="text-[11px] font-semibold px-2 py-1 rounded-lg"
+            style={{ color: MAGENTA, background: 'rgba(255,47,105,0.08)' }}
+          >
+            Limpar filtros
+          </button>
+        )}
 
-        <span className="ml-auto text-xs tabular-nums font-medium" style={{ color: '#9a8fb5' }}>
-          {filtered.length} de {rows.length} linhas · {year}
-        </span>
+        <div className="ml-auto flex items-center gap-3 text-xs" style={{ color: '#9a8fb5' }}>
+          {fcLocked && (
+            <span className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: '#d97706' }}>
+              <Lock className="w-3 h-3" /> FC bloqueado até segunda
+            </span>
+          )}
+          <span className="tabular-nums">
+            {filteredIds.size} clientes · {year}
+          </span>
+        </div>
       </div>
 
-      {/* Scrollable table */}
+      {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
         <table
           className="border-collapse text-xs"
           style={{ tableLayout: 'fixed', minWidth: `${tableMinWidth}px`, width: '100%' }}
         >
           <colgroup>
-            <col style={{ width: `${CW.name}px` }} />
-            <col style={{ width: `${CW.am}px` }} />
-            <col style={{ width: `${CW.entity}px` }} />
-            <col style={{ width: `${CW.tipo}px` }} />
-            <col style={{ width: `${CW.cat}px` }} />
-            {MONTHS_ARRAY.flatMap(m =>
+            <col style={{ width: `${STICKY_W}px`, minWidth: `${STICKY_W}px` }} />
+            {MONTHS.flatMap(m =>
               expandedMonths.has(m)
-                ? EXP_W.map((w, i) => <col key={`${m}-${i}`} style={{ width: `${w}px` }} />)
-                : [<col key={m} style={{ width: `${MONTH_W}px` }} />]
+                ? EXP_COLS.map((c, i) => <col key={`${m}-${i}`} style={{ width: `${c.w}px` }} />)
+                : [<col key={m} style={{ width: `${COL_W2}px` }} />,
+                   <col key={`${m}b`} style={{ width: `${COL_W2}px` }} />]
             )}
-            <col style={{ width: `${MONTH_W}px` }} />
+            <col style={{ width: '88px' }} />
           </colgroup>
 
+          {/* ── HEADER ─────────────────────────────────────────────────── */}
           <thead className="sticky top-0 z-20">
-            {/* Group header row */}
+            {/* Linha 1: meses */}
             <tr>
               <th
-                colSpan={5}
-                className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-widest sticky left-0 z-30"
-                style={{
-                  background: LILAS,
-                  color: 'rgba(255,255,255,0.5)',
-                  borderRight: '1px solid rgba(255,255,255,0.08)',
-                }}
+                className="sticky left-0 z-30 text-left px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest"
+                style={{ background: LILAS, color: 'rgba(255,255,255,0.45)', borderRight: '1px solid rgba(255,255,255,0.08)' }}
               >
-                Cliente / Dimensões
+                Hierarquia
               </th>
-              {MONTHS_ARRAY.flatMap(m => {
-                const isExp = expandedMonths.has(m)
+              {MONTHS.flatMap(m => {
+                const isExp  = expandedMonths.has(m)
                 const isCurr = m === currentMonth
-                const span = isExp ? EXP_W.length : 1
+                const span   = isExp ? EXP_COLS.length : 2
                 return [
                   <th
                     key={m}
                     colSpan={span}
                     onClick={() => toggleMonth(m)}
-                    className="text-center py-2.5 px-1 text-[11px] font-bold cursor-pointer select-none transition-opacity"
-                    title={isExp ? 'Colapsar' : 'Expandir'}
+                    className="text-center py-2.5 px-1 text-[11px] font-bold cursor-pointer select-none"
                     style={{
-                      background: isCurr ? HEADER_CURR_BG : HEADER_BG,
-                      color: isCurr ? '#fff' : 'rgba(255,255,255,0.75)',
-                      borderLeft: '1px solid rgba(255,255,255,0.08)',
+                      background: isCurr ? MAGENTA : LILAS,
+                      color: isCurr ? '#fff' : 'rgba(255,255,255,0.8)',
+                      borderLeft: '1px solid rgba(255,255,255,0.1)',
                     }}
                   >
                     <span className="flex items-center justify-center gap-0.5">
-                      {MONTH_SHORT[m - 1]}
-                      {isCurr && (
-                        <span
-                          className="inline-block w-1.5 h-1.5 rounded-full ml-0.5 flex-shrink-0"
-                          style={{ background: 'rgba(255,255,255,0.9)' }}
-                        />
-                      )}
+                      {MONTH_NAMES[m - 1]}
+                      {isCurr && <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5 inline-block" />}
                       {isExp
-                        ? <ChevronDown className="w-3 h-3 opacity-60 flex-shrink-0" />
-                        : <ChevronRight className="w-3 h-3 opacity-40 flex-shrink-0" />
+                        ? <ChevronDown className="w-3 h-3 opacity-60" />
+                        : <ChevronRight className="w-3 h-3 opacity-40" />
                       }
                     </span>
                   </th>
                 ]
               })}
               <th
-                className="text-center py-2.5 px-2 text-[11px] font-bold"
-                style={{
-                  background: '#2d1d5c',
-                  color: 'rgba(255,255,255,0.5)',
-                  borderLeft: '1px solid rgba(255,255,255,0.1)',
-                }}
+                className="text-center py-2.5 text-[11px] font-bold"
+                style={{ background: '#2d1d5c', color: 'rgba(255,255,255,0.5)', borderLeft: '1px solid rgba(255,255,255,0.1)' }}
               >
-                Anual
+                ANUAL
               </th>
             </tr>
 
-            {/* Sub-column labels */}
-            <tr style={{ borderBottom: '2px solid rgba(66,44,118,0.15)', background: '#f3f0f9' }}>
+            {/* Linha 2: sub-colunas */}
+            <tr style={{ background: '#f3f0f9', borderBottom: '2px solid rgba(66,44,118,0.15)' }}>
               <th
-                className="text-left px-2 py-2 text-[11px] font-bold sticky z-30 border-r"
-                style={{
-                  left: 0,
-                  background: '#f3f0f9',
-                  color: LILAS,
-                  borderColor: 'rgba(66,44,118,0.12)',
-                }}
+                className="sticky left-0 z-30 px-3 py-1.5 text-[11px] font-bold text-left"
+                style={{ background: '#f3f0f9', color: LILAS, borderRight: '1px solid rgba(66,44,118,0.12)' }}
               >
-                Cliente
+                Cliente / Dimensão
               </th>
-              <th
-                className="text-left px-2 py-2 text-[11px] font-semibold sticky z-30 border-r truncate"
-                style={{
-                  left: `${CW.name}px`,
-                  background: '#f3f0f9',
-                  color: '#6b6570',
-                  borderColor: 'rgba(66,44,118,0.1)',
-                }}
-              >
-                AM
-              </th>
-              <th
-                className="text-left px-2 py-2 text-[11px] font-semibold sticky z-30 border-r"
-                style={{
-                  left: `${CW.name + CW.am}px`,
-                  background: '#f3f0f9',
-                  color: '#6b6570',
-                  borderColor: 'rgba(66,44,118,0.1)',
-                }}
-              >
-                BU
-              </th>
-              <th
-                className="text-left px-2 py-2 text-[11px] font-semibold sticky z-30 border-r"
-                style={{
-                  left: `${CW.name + CW.am + CW.entity}px`,
-                  background: '#f3f0f9',
-                  color: '#6b6570',
-                  borderColor: 'rgba(66,44,118,0.1)',
-                }}
-              >
-                Tipo
-              </th>
-              <th
-                className="text-left px-2 py-2 text-[11px] font-semibold sticky z-30 border-r"
-                style={{
-                  left: `${CW.name + CW.am + CW.entity + CW.tipo}px`,
-                  background: '#f3f0f9',
-                  color: '#6b6570',
-                  borderColor: 'rgba(66,44,118,0.15)',
-                }}
-              >
-                Categoria
-              </th>
-              {MONTHS_ARRAY.flatMap(m => {
+              {MONTHS.flatMap(m => {
                 if (expandedMonths.has(m)) {
-                  return [
-                    <th key={`${m}-hp`} className="text-right px-2 py-2 text-[10px] font-bold uppercase tracking-wide border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.1)' }}>Plano</th>,
-                    <th key={`${m}-hf`} className="text-right px-2 py-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>FC</th>,
-                    <th key={`${m}-hr`} className="text-right px-2 py-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>Real.</th>,
-                    <th key={`${m}-hd`} className="text-center px-1 py-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>Δ%</th>,
-                  ]
+                  return EXP_COLS.map((col, i) => (
+                    <th
+                      key={`${m}-${i}`}
+                      className={`py-1.5 px-1.5 text-[9px] font-bold uppercase tracking-wide ${col.align === 'right' ? 'text-right' : 'text-left'}`}
+                      style={{
+                        color: col.editable ? LILAS : '#9a8fb5',
+                        borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.12)' : undefined,
+                        fontWeight: col.editable ? 800 : 600,
+                      }}
+                    >
+                      {col.label}
+                    </th>
+                  ))
                 }
                 return [
-                  <th key={m} className="text-right px-2 py-2 text-[10px] font-bold uppercase tracking-wide border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.1)' }}>Plano</th>
+                  <th key={`${m}a`} className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.1)' }}>Plano</th>,
+                  <th key={`${m}b`} className="py-1.5 px-1.5 text-[9px] font-bold uppercase text-right" style={{ color: LILAS }}>FC</th>,
                 ]
               })}
-              <th className="text-right px-2 py-2 text-[10px] font-bold uppercase tracking-wide border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.15)' }}>Plano</th>
+              <th className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.15)' }}>Plano</th>
             </tr>
           </thead>
 
+          {/* ── BODY ───────────────────────────────────────────────────── */}
           <tbody>
-            {filtered.map((row, idx) => {
-              const annualPlan = MONTHS_ARRAY.reduce((a, m) => a + (row.months[m]?.plan ?? 0), 0)
-              const buCfg = BU_COLOR[row.entity ?? ''] ?? { color: LILAS, bg: 'rgba(66,44,118,0.08)' }
-              const isEven = idx % 2 === 0
-              const rowBg = isEven ? '#ffffff' : OFFWHITE
+            {visibleNodes.map(node => {
+              const indent = LEVEL_INDENT[node.level]
+              const bg     = LEVEL_BG[node.level]
+
+              if (node.type === 'group') {
+                const totals = node.monthTotals
+                const isExp  = expandedGroups.has(node.key)
+                const buPal  = node.level === 0 ? (BU_PALETTE[node.label] ?? BU_PALETTE['TRP']) : null
+                const annualPlan = MONTHS.reduce((s, m) => s + (totals[m]?.plan ?? 0), 0)
+
+                return (
+                  <tr
+                    key={node.key}
+                    style={{ borderBottom: '1px solid rgba(66,44,118,0.07)', background: bg }}
+                  >
+                    {/* Nome do grupo */}
+                    <td
+                      className="sticky left-0 z-10 py-2 cursor-pointer select-none"
+                      style={{ background: bg, paddingLeft: `${indent + 8}px`, paddingRight: '8px' }}
+                      onClick={() => toggleGroup(node.key)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {isExp
+                          ? <ChevronDown  className="w-3.5 h-3.5 flex-shrink-0" style={{ color: LILAS }} />
+                          : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: LILAS, opacity: 0.5 }} />
+                        }
+                        {buPal ? (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-black"
+                            style={{ background: buPal.bg, color: buPal.color }}
+                          >
+                            {node.label}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold truncate" style={{ color: LEVEL_LABEL_COLOR[node.level] }}>
+                            {node.label}
+                          </span>
+                        )}
+                        <span
+                          className="ml-1 text-[10px] rounded-full px-1.5 font-medium flex-shrink-0"
+                          style={{ background: 'rgba(66,44,118,0.08)', color: '#9a8fb5' }}
+                        >
+                          {node.childCount}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Células de meses para grupo */}
+                    {MONTHS.flatMap(m => {
+                      const t = totals[m]
+                      if (!t) return expandedMonths.has(m)
+                        ? EXP_COLS.map((_, i) => <td key={`${m}-${i}`} />)
+                        : [<td key={`${m}a`} />, <td key={`${m}b`} />]
+
+                      const desv  = desvPct(t.plan, t.fc)
+                      const fatPct = desvPct(t.plan, t.faturado)
+
+                      if (expandedMonths.has(m)) {
+                        return EXP_COLS.map((col, i) => {
+                          let val: number | string | null = null
+                          let color = '#9a8fb5'
+                          switch (col.key) {
+                            case 'plan':          val = t.plan;     color = GRAFITE;   break
+                            case 'fc':            val = t.fc;       color = LILAS;     break
+                            case 'orders':        val = t.fc;       color = '#9a8fb5'; break
+                            case 'withoutOrders': val = t.fc - t.fc; break
+                            case 'faturado':      val = t.faturado; color = '#00b870'; break
+                            case 'desvioPlano':   val = t.fc - t.plan; color = pctColor(desv); break
+                            case 'aFaturar':      val = t.fc - t.faturado; break
+                            case 'lastWeek':      val = t.lastWeek; break
+                            case 'mbPlan':        val = t.mbPlan;   break
+                            case 'mbFc':          val = t.mbFc;     break
+                            case 'weekComment':   return <td key={`${m}-${i}`} style={{ borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.08)' : undefined }} />
+                          }
+                          return (
+                            <td
+                              key={`${m}-${i}`}
+                              className={`px-1.5 py-2 text-xs tabular-nums ${col.align === 'right' ? 'text-right' : 'text-left'} font-semibold`}
+                              style={{ color: typeof val === 'number' && val !== 0 ? color : 'rgba(65,64,66,0.2)', borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.08)' : undefined }}
+                            >
+                              {typeof val === 'number' && val !== 0 ? fmt(val) : '—'}
+                            </td>
+                          )
+                        })
+                      }
+                      // Collapsed: PLANO + FC
+                      return [
+                        <td key={`${m}a`} className="px-1.5 py-2 text-right tabular-nums text-[11px] font-semibold border-l" style={{ color: t.plan ? GRAFITE : 'rgba(65,64,66,0.15)', borderColor: 'rgba(66,44,118,0.07)' }}>
+                          {fmt(t.plan)}
+                        </td>,
+                        <td key={`${m}b`} className="px-1.5 py-2 text-right tabular-nums text-[11px] font-bold" style={{ color: t.fc ? LILAS : 'rgba(65,64,66,0.15)' }}>
+                          {fmt(t.fc)}
+                        </td>,
+                      ]
+                    })}
+
+                    {/* Anual */}
+                    <td className="px-2 py-2 text-right tabular-nums font-bold text-[11px] border-l" style={{ color: LILAS, borderColor: 'rgba(66,44,118,0.12)' }}>
+                      {fmt(annualPlan)}
+                    </td>
+                  </tr>
+                )
+              }
+
+              // ── Client row ────────────────────────────────────────────
+              const c = node.data
+              const annualPlan = MONTHS.reduce((s, m) => s + (c.months[m]?.plan ?? 0), 0)
+              const annualFc   = MONTHS.reduce((s, m) => s + (c.months[m]?.fc ?? c.months[m]?.plan ?? 0), 0)
 
               return (
                 <tr
-                  key={row.id}
-                  className="group transition-colors"
-                  style={{ borderBottom: '1px solid rgba(66,44,118,0.06)' }}
-                  onMouseEnter={e => {
-                    const tds = e.currentTarget.querySelectorAll('td')
-                    tds.forEach(td => (td.style.background = 'rgba(66,44,118,0.04)'))
-                  }}
-                  onMouseLeave={e => {
-                    const tds = e.currentTarget.querySelectorAll<HTMLTableCellElement>('td')
-                    tds.forEach((td, i) => {
-                      if (i < 5) td.style.background = rowBg
-                      else td.style.background = ''
-                    })
-                  }}
+                  key={node.key}
+                  className="group/row hover:bg-purple-50/30 transition-colors"
+                  style={{ borderBottom: '1px solid rgba(66,44,118,0.05)', background: '#fff' }}
                 >
-                  {/* Sticky left: Cliente */}
                   <td
-                    className="px-2 py-2 sticky z-10 font-semibold truncate text-[11px]"
-                    style={{ left: 0, background: rowBg, color: GRAFITE, borderRight: '1px solid rgba(66,44,118,0.06)' }}
-                    title={row.nameReduced}
+                    className="sticky left-0 z-10 py-2 group-hover/row:bg-purple-50/30 transition-colors"
+                    style={{ background: 'inherit', paddingLeft: `${indent + 8}px`, paddingRight: '8px',
+                      borderRight: '1px solid rgba(66,44,118,0.08)' }}
+                    title={c.nameReduced}
                   >
-                    {row.nameReduced}
-                  </td>
-                  {/* AM */}
-                  <td
-                    className="px-2 py-2 sticky z-10 truncate text-[11px]"
-                    style={{ left: `${CW.name}px`, background: rowBg, color: '#6b6570' }}
-                    title={row.accountManager ?? ''}
-                  >
-                    {row.accountManager ?? '—'}
-                  </td>
-                  {/* BU */}
-                  <td
-                    className="px-2 py-2 sticky z-10 text-[11px]"
-                    style={{ left: `${CW.name + CW.am}px`, background: rowBg }}
-                  >
-                    {row.entity ? (
-                      <span
-                        className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-bold truncate max-w-full"
-                        style={{ background: buCfg.bg, color: buCfg.color }}
-                      >
-                        {row.entity.replace('ARM - ', '')}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  {/* Tipo */}
-                  <td
-                    className="px-2 py-2 sticky z-10 truncate text-[10px]"
-                    style={{
-                      left: `${CW.name + CW.am + CW.entity}px`,
-                      background: rowBg,
-                      color: '#9a8fb5',
-                      borderRight: '1px solid rgba(66,44,118,0.06)',
-                    }}
-                  >
-                    {row.commercialType ?? '—'}
-                  </td>
-                  {/* Categoria */}
-                  <td
-                    className="px-2 py-2 sticky z-10 truncate text-[10px]"
-                    style={{
-                      left: `${CW.name + CW.am + CW.entity + CW.tipo}px`,
-                      background: rowBg,
-                      color: GRAFITE,
-                      fontWeight: 500,
-                      borderRight: '1px solid rgba(66,44,118,0.12)',
-                    }}
-                    title={row.category ?? ''}
-                  >
-                    {row.category ?? '—'}
+                    <span className="text-[11px] font-medium truncate block max-w-[220px]" style={{ color: GRAFITE }}>
+                      {c.nameChart ?? c.nameReduced}
+                    </span>
                   </td>
 
-                  {/* Month cells */}
-                  {MONTHS_ARRAY.flatMap(m => {
-                    const md = row.months[m]
-                    const plan = md?.plan ?? 0
-                    const fc = md?.fc ?? null
+                  {MONTHS.flatMap(m => {
+                    const md       = c.months[m]
+                    const isCurr   = m === currentMonth
+                    const isHist   = m < currentMonth
+                    const plan     = md?.plan ?? 0
+                    const rawFc    = md?.fc
+                    const localFc  = getLocal(c.id, m, 'fcMonth')
+                    const fc       = localFc !== undefined ? (localFc as number) : (rawFc ?? plan)
+                    const orders   = (getLocal(c.id, m, 'orders') as number | undefined) ?? md?.orders ?? fc
                     const faturado = md?.faturado ?? 0
-                    const pct = desvPct(plan, faturado)
-                    const hasFat = faturado > 0
+                    const lastWeek = (getLocal(c.id, m, 'lastWeek') as number | undefined) ?? md?.lastWeek ?? null
+                    const mbPlan   = (getLocal(c.id, m, 'mbPlan') as number | undefined) ?? md?.mbPlan ?? null
+                    const mbFc     = md?.mbFc ?? null
+                    const comment  = (getLocal(c.id, m, 'weekComment') as string | undefined) ?? md?.weekComment ?? null
+
+                    const sPedido  = fc - (orders ?? fc)
+                    const desv     = fc - plan
+                    const aFaturar = fc - faturado
 
                     if (expandedMonths.has(m)) {
-                      const ps = pctStyle(pct, hasFat)
-                      return [
-                        <td key={`${m}-plan`} className="px-2 py-2 text-right tabular-nums text-[11px]" style={{ color: plan > 0 ? GRAFITE : 'rgba(65,64,66,0.2)', borderLeft: '1px solid rgba(66,44,118,0.06)' }}>
-                          {plan > 0 ? fmt(plan) : '—'}
-                        </td>,
-                        <td key={`${m}-fc`} className="px-2 py-2 text-right tabular-nums text-[11px]" style={{ color: '#9a8fb5' }}>
-                          {fc != null ? fmt(fc) : plan > 0 ? fmt(plan) : '—'}
-                        </td>,
-                        <td key={`${m}-real`} className="px-2 py-2 text-right tabular-nums text-[11px] font-semibold" style={{ color: hasFat ? '#00b870' : 'rgba(65,64,66,0.15)' }}>
-                          {hasFat ? fmt(faturado) : '—'}
-                        </td>,
-                        <td
-                          key={`${m}-desv`}
-                          className="px-1 py-2 text-center tabular-nums text-[10px] rounded-sm"
-                          style={{
-                            ...ps,
-                            background: hasFat ? pctBg(pct, hasFat) : 'transparent',
-                          }}
-                        >
-                          {hasFat && pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
-                        </td>,
-                      ]
+                      return EXP_COLS.map((col, i) => {
+                        const bdr = i === 0 ? { borderLeft: '1px solid rgba(66,44,118,0.08)' } : {}
+
+                        const makeTd = (content: ReactNode, extra?: CSSProperties) => (
+                          <td
+                            key={`${m}-${i}`}
+                            className={`px-1.5 py-1 ${col.align === 'right' ? 'text-right' : 'text-left'} text-[11px] tabular-nums`}
+                            style={{ ...bdr, ...extra }}
+                          >
+                            {content}
+                          </td>
+                        )
+
+                        switch (col.key) {
+                          case 'plan':
+                            return makeTd(
+                              <span style={{ color: plan ? GRAFITE : 'rgba(65,64,66,0.18)' }}>{fmt(plan)}</span>
+                            )
+                          case 'fc':
+                            return makeTd(
+                              <EditCell
+                                value={rawFc !== undefined ? rawFc : null}
+                                onSave={v => saveEntry(c.id, m, 'fcMonth', v)}
+                                locked={fcLocked && !isHist}
+                                isCurrent={isCurr}
+                                isHistory={isHist}
+                              />
+                            )
+                          case 'orders':
+                            return makeTd(
+                              <EditCell
+                                value={md?.orders ?? null}
+                                onSave={v => saveEntry(c.id, m, 'orders', v)}
+                                locked={fcLocked && !isHist}
+                                isCurrent={isCurr}
+                                isHistory={isHist}
+                              />
+                            )
+                          case 'withoutOrders':
+                            return makeTd(
+                              <span style={{ color: sPedido !== 0 ? (sPedido > 0 ? '#00b870' : MAGENTA) : 'rgba(65,64,66,0.2)' }}>
+                                {sPedido !== 0 ? fmt(sPedido) : '—'}
+                              </span>
+                            )
+                          case 'faturado':
+                            return makeTd(
+                              <span style={{ color: faturado > 0 ? '#00b870' : 'rgba(65,64,66,0.15)', fontWeight: faturado > 0 ? 600 : 400 }}>
+                                {faturado > 0 ? fmt(faturado) : '—'}
+                              </span>
+                            )
+                          case 'desvioPlano':
+                            return makeTd(
+                              <span style={{ color: pctColor(desvPct(plan, fc)), fontWeight: desv !== 0 ? 600 : 400 }}>
+                                {desv !== 0 ? fmt(desv) : '—'}
+                              </span>
+                            )
+                          case 'aFaturar':
+                            return makeTd(
+                              <span style={{ color: aFaturar > 0 ? GRAFITE : aFaturar < 0 ? MAGENTA : 'rgba(65,64,66,0.2)' }}>
+                                {aFaturar !== 0 ? fmt(aFaturar) : '—'}
+                              </span>
+                            )
+                          case 'lastWeek':
+                            return makeTd(
+                              <EditCell
+                                value={lastWeek}
+                                onSave={v => saveEntry(c.id, m, 'lastWeek', v)}
+                                locked={false}
+                                isCurrent={isCurr}
+                                isHistory={false}
+                              />
+                            )
+                          case 'mbPlan':
+                            return makeTd(
+                              <EditCell
+                                value={mbPlan}
+                                onSave={v => saveEntry(c.id, m, 'mbPlanPct', v)}
+                                locked={false}
+                                isCurrent={isCurr}
+                                isHistory={false}
+                              />
+                            )
+                          case 'mbFc':
+                            return makeTd(
+                              <span style={{ color: mbFc ? '#00b870' : 'rgba(65,64,66,0.15)' }}>
+                                {mbFc ? fmt(mbFc) : '—'}
+                              </span>
+                            )
+                          case 'weekComment':
+                            return (
+                              <td key={`${m}-${i}`} className="px-1.5 py-1 text-left" style={bdr}>
+                                <CommentCell
+                                  value={comment}
+                                  onSave={v => saveComment(c.id, m, v)}
+                                  isCurrent={isCurr}
+                                />
+                              </td>
+                            )
+                          default:
+                            return makeTd(null)
+                        }
+                      })
                     }
 
+                    // Collapsed: PLANO + FC
                     return [
-                      <td
-                        key={m}
-                        className="px-2 py-2 text-right tabular-nums text-[11px]"
-                        style={{
-                          color: plan > 0 ? GRAFITE : 'rgba(65,64,66,0.18)',
-                          borderLeft: '1px solid rgba(66,44,118,0.05)',
-                        }}
-                      >
-                        {plan > 0 ? fmt(plan) : '—'}
-                      </td>
+                      <td key={`${m}a`} className="px-1.5 py-1.5 text-right tabular-nums text-[11px] border-l" style={{ color: plan ? GRAFITE : 'rgba(65,64,66,0.18)', borderColor: 'rgba(66,44,118,0.07)' }}>
+                        {plan ? fmt(plan) : '—'}
+                      </td>,
+                      <td key={`${m}b`} className="px-1.5 py-1.5 text-right tabular-nums text-[11px] font-semibold" style={{ color: fc !== plan ? LILAS : '#9a8fb5' }}>
+                        {fc ? fmt(fc) : '—'}
+                      </td>,
                     ]
                   })}
 
-                  {/* Annual total */}
-                  <td
-                    className="px-2 py-2 text-right tabular-nums font-bold text-[11px]"
-                    style={{
-                      color: LILAS,
-                      borderLeft: '2px solid rgba(66,44,118,0.15)',
-                    }}
-                  >
-                    {annualPlan > 0 ? fmt(annualPlan) : '—'}
+                  {/* Anual */}
+                  <td className="px-2 py-1.5 text-right tabular-nums font-bold text-[11px] border-l" style={{ color: LILAS, borderColor: 'rgba(66,44,118,0.12)' }}>
+                    {fmt(annualPlan)}
                   </td>
                 </tr>
               )
             })}
           </tbody>
 
-          {/* Totals row */}
+          {/* ── TOTAIS ─────────────────────────────────────────────────── */}
           <tfoot>
             <tr style={{ background: LILAS, borderTop: `2px solid ${LILAS}` }}>
               <td
-                colSpan={5}
-                className="px-3 py-2.5 text-[11px] font-bold sticky left-0 z-10 uppercase tracking-wide"
+                className="sticky left-0 z-10 px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide"
                 style={{ background: LILAS, color: 'rgba(255,255,255,0.7)' }}
               >
-                TOTAL — {filtered.length} {filtered.length === 1 ? 'linha' : 'linhas'}
+                TOTAL — {filteredIds.size} clientes
               </td>
-              {MONTHS_ARRAY.flatMap(m => {
-                const t = totals[m]
-                const pct = desvPct(t.plan, t.faturado)
+              {MONTHS.flatMap(m => {
+                const t = grandTotals[m]
+                const desv = desvPct(t.plan, t.faturado)
                 const hasFat = t.faturado > 0
 
                 if (expandedMonths.has(m)) {
-                  const pctColor = hasFat && pct !== null
-                    ? (pct >= -5 ? VERDE : pct >= -20 ? '#f59e0b' : '#ff8aaa')
-                    : 'rgba(255,255,255,0.25)'
-                  return [
-                    <td key={`${m}-p`} className="px-2 py-2.5 text-right tabular-nums font-bold text-[11px] text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>{fmt(t.plan)}</td>,
-                    <td key={`${m}-f`} className="px-2 py-2.5 text-right tabular-nums text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>{t.fc > 0 ? fmt(t.fc) : '—'}</td>,
-                    <td key={`${m}-r`} className="px-2 py-2.5 text-right tabular-nums font-bold text-[11px]" style={{ color: hasFat ? VERDE : 'rgba(255,255,255,0.2)' }}>{hasFat ? fmt(t.faturado) : '—'}</td>,
-                    <td key={`${m}-d`} className="px-1 py-2.5 text-center tabular-nums text-[10px] font-bold" style={{ color: pctColor }}>
-                      {hasFat && pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
-                    </td>,
-                  ]
+                  return EXP_COLS.map((col, i) => {
+                    const bdr = i === 0 ? { borderLeft: '1px solid rgba(255,255,255,0.1)' } : {}
+                    switch (col.key) {
+                      case 'plan':         return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] text-white tabular-nums" style={bdr}>{fmt(t.plan)}</td>
+                      case 'fc':           return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.9)' }}>{fmt(t.fc)}</td>
+                      case 'faturado':     return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ ...bdr, color: hasFat ? VERDE : 'rgba(255,255,255,0.2)' }}>{hasFat ? fmt(t.faturado) : '—'}</td>
+                      case 'desvioPlano':  return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.fc - t.plan)}</td>
+                      case 'mbPlan':       return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.mbPlan)}</td>
+                      case 'mbFc':         return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.mbFc)}</td>
+                      default:             return <td key={`${m}-${i}`} style={bdr} />
+                    }
+                  })
                 }
                 return [
-                  <td key={m} className="px-2 py-2.5 text-right tabular-nums font-bold text-white text-[11px]" style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
-                    {fmt(t.plan)}
-                  </td>
+                  <td key={`${m}a`} className="px-1.5 py-2.5 text-right font-bold text-white text-[11px] tabular-nums border-l" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>{fmt(t.plan)}</td>,
+                  <td key={`${m}b`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ color: 'rgba(255,255,255,0.7)' }}>{fmt(t.fc)}</td>,
                 ]
               })}
-              <td
-                className="px-2 py-2.5 text-right tabular-nums font-extrabold text-[12px]"
-                style={{ color: '#ffffff', borderLeft: '2px solid rgba(255,255,255,0.2)' }}
-              >
-                {fmt(annualPlanTotal)}
+              <td className="px-2 py-2.5 text-right font-extrabold text-[12px] tabular-nums text-white border-l" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
+                {fmt(MONTHS.reduce((s, m) => s + (grandTotals[m]?.plan ?? 0), 0))}
               </td>
             </tr>
           </tfoot>
