@@ -14,18 +14,22 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
     steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
+      # Sem actions/checkout — usa git puro para evitar Node.js 20 deprecated
+      - name: Checkout código (git)
+        run: |
+          git init
+          git remote add origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD
+          echo "✅ Checkout: $(git log -1 --format='%h %s')"
 
       - name: Gerar tag única de build
         run: echo "BUILD_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
 
       - name: Copiar Dockerfile.prod para Dockerfile
-        run: cp Dockerfile.prod Dockerfile
+        run: cp Dockerfile.prod Dockerfile && echo "✅ Dockerfile copiado"
 
       - name: Preencher variáveis sensíveis no .env.docker.prod
         run: |
@@ -37,10 +41,18 @@ jobs:
           echo "✅ .env.docker.prod preenchido"
 
       - name: Login to Azure Container Registry
-        run: echo "${{ secrets.AZURE_ACR_PASSWORD_PROD }}" | docker login vdmprod.azurecr.io -u "${{ vars.AZURE_ACR_USERNAME_PROD }}" --password-stdin
+        run: |
+          echo "${{ secrets.AZURE_ACR_PASSWORD_PROD }}" | \
+            docker login vdmprod.azurecr.io \
+              -u "${{ vars.AZURE_ACR_USERNAME_PROD }}" \
+              --password-stdin
+          echo "✅ Login ACR OK"
 
       - name: Build Docker image
-        run: docker build -t vendemmia-forecast .
+        run: |
+          echo "🔨 Iniciando docker build..."
+          docker build -t vendemmia-forecast . 2>&1
+          echo "✅ Build concluído"
 
       - name: Tag e Push para Azure ACR
         run: |
@@ -48,7 +60,7 @@ jobs:
           docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
           docker push vdmprod.azurecr.io/samples/vendemmia-forecast:latest
           docker push vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
-          echo "✅ Imagem publicada: $BUILD_TAG"
+          echo "✅ Push OK — tag: $BUILD_TAG"
 
       - name: Recriar container no Portainer
         env:
@@ -57,7 +69,10 @@ jobs:
           ACR_AUTH_B64: ${{ secrets.AZURE_ACR_AUTH_B64 }}
           ACR_USERNAME: ${{ vars.AZURE_ACR_USERNAME_PROD }}
           ACR_PASSWORD: ${{ secrets.AZURE_ACR_PASSWORD_PROD }}
-        run: python3 .github/scripts/portainer_deploy.py
+        run: |
+          echo "🚀 Iniciando deploy no Portainer (BUILD_TAG=$BUILD_TAG)..."
+          python3 .github/scripts/portainer_deploy.py
+          echo "✅ Deploy concluído"
 
       - name: Remover imagens Docker não utilizadas
         env:
@@ -70,9 +85,10 @@ jobs:
             | jq -r '.jwt // empty' 2>/dev/null || true)
           if [ -n "$TOKEN" ]; then
             curl -k -s -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/images/prune" \
-              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
               -d '{}' -w "\nPrune HTTP %{http_code}\n" || true
-            echo "✅ Prune concluído"
+            echo "✅ Prune OK"
           else
-            echo "⚠️ Token Portainer não obtido — pulando prune"
+            echo "⚠️  Token Portainer não obtido — pulando prune"
           fi
