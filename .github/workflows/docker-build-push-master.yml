@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo do redeploy manual'
+        required: false
+        default: 'Redeploy manual'
 
 jobs:
   build-and-push:
