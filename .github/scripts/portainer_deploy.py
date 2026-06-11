@@ -81,7 +81,7 @@ if stack:
     # Preserva variáveis de ambiente já configuradas na stack
     env = stack.get("Env", [])
 
-    print(f"   Atualizando stack com novo compose...")
+    print(f"   Atualizando stack com novo compose (pullImage=true)...")
     st, resp = p.call(
         "PUT",
         f"/api/stacks/{stack_id}?endpointId={EP}",
@@ -89,6 +89,7 @@ if stack:
             "stackFileContent": compose_content,
             "env": env,
             "prune": True,
+            "pullImage": True,
         },
     )
     print(f"Stack update: HTTP {st}")
