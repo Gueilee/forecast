@@ -14,6 +14,7 @@ export type MonthEntry = {
   lastWeek:     number | null
   mbPlan:       number | null
   mbFc:         number | null
+  refExternal:  number          // ActualNF WHERE processRef IS NOT NULL
   weekComment:  string | null
 }
 
@@ -32,7 +33,7 @@ export type ClientData = {
 
 type MonthTotals = {
   plan: number; fc: number; faturado: number
-  lastWeek: number; mbPlan: number; mbFc: number
+  lastWeek: number; mbPlan: number; mbFc: number; refExternal: number
 }
 
 type GroupNode = {
@@ -111,7 +112,7 @@ type ExpCol = {
   lockable?: boolean
 }
 
-// Colunas quando MÊS EXPANDIDO (11 colunas):
+// Colunas quando MÊS EXPANDIDO (12 colunas):
 const EXP_COLS: ExpCol[] = [
   { key: 'plan',          label: 'PLANO',       w: 72,  align: 'right' },
   { key: 'fc',            label: 'FORECAST',    w: 72,  align: 'right', editable: true, lockable: true },
@@ -123,6 +124,7 @@ const EXP_COLS: ExpCol[] = [
   { key: 'lastWeek',      label: 'ÚLT.SEM.',    w: 68,  align: 'right', editable: true },
   { key: 'mbPlan',        label: 'MB PLAN',     w: 68,  align: 'right', editable: true },
   { key: 'mbFc',          label: 'MB FC',       w: 68,  align: 'right' },
+  { key: 'refExternal',   label: 'REF.EXTERNA', w: 80,  align: 'right' },
   { key: 'weekComment',   label: 'COMENTÁRIO',  w: 140, align: 'left',  editable: true },
 ]
 
@@ -176,16 +178,17 @@ function isFcLocked(): boolean {
 function sumTotals(clients: ClientData[]): Record<number, MonthTotals> {
   const t: Record<number, MonthTotals> = {}
   for (let m = 1; m <= 12; m++) {
-    t[m] = { plan: 0, fc: 0, faturado: 0, lastWeek: 0, mbPlan: 0, mbFc: 0 }
+    t[m] = { plan: 0, fc: 0, faturado: 0, lastWeek: 0, mbPlan: 0, mbFc: 0, refExternal: 0 }
     for (const c of clients) {
       const md = c.months[m]
       if (!md) continue
-      t[m].plan     += md.plan
-      t[m].fc       += md.fc ?? md.plan
-      t[m].faturado += md.faturado
-      t[m].lastWeek += md.lastWeek ?? 0
-      t[m].mbPlan   += md.mbPlan ?? 0
-      t[m].mbFc     += md.mbFc ?? 0
+      t[m].plan        += md.plan
+      t[m].fc          += md.fc ?? md.plan
+      t[m].faturado    += md.faturado
+      t[m].lastWeek    += md.lastWeek ?? 0
+      t[m].mbPlan      += md.mbPlan ?? 0
+      t[m].mbFc        += md.mbFc ?? 0
+      t[m].refExternal += md.refExternal
     }
   }
   return t
@@ -682,7 +685,7 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                 }
                 return [
                   <th key={`${m}a`} className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.1)' }}>Plano</th>,
-                  <th key={`${m}b`} className="py-1.5 px-1.5 text-[9px] font-bold uppercase text-right" style={{ color: LILAS }}>FC</th>,
+                  <th key={`${m}b`} className="py-1.5 px-1.5 text-[9px] font-bold uppercase text-right" style={{ color: m <= currentMonth ? '#00b870' : LILAS }}>{m <= currentMonth ? 'Faturado' : 'FC'}</th>,
                 ]
               })}
               <th className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.15)' }}>Plano</th>
@@ -760,9 +763,10 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                             case 'faturado':      val = t.faturado; color = '#00b870'; break
                             case 'desvioPlano':   val = t.fc - t.plan; color = pctColor(desv); break
                             case 'aFaturar':      val = t.fc - t.faturado; break
-                            case 'lastWeek':      val = t.lastWeek; break
-                            case 'mbPlan':        val = t.mbPlan;   break
-                            case 'mbFc':          val = t.mbFc;     break
+                            case 'lastWeek':      val = t.lastWeek;      break
+                            case 'mbPlan':        val = t.mbPlan;        break
+                            case 'mbFc':          val = t.mbFc;          break
+                            case 'refExternal':   val = t.refExternal;   color = '#00b870'; break
                             case 'weekComment':   return <td key={`${m}-${i}`} style={{ borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.08)' : undefined }} />
                           }
                           return (
@@ -776,13 +780,17 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                           )
                         })
                       }
-                      // Collapsed: PLANO + FC
+                      // Collapsed: PLANO + FATURADO (passado) ou PLANO + FC (futuro)
+                      const collVal = m <= currentMonth ? t.faturado : t.fc
+                      const collColor = m <= currentMonth
+                        ? (collVal ? '#00b870' : 'rgba(65,64,66,0.15)')
+                        : (collVal ? LILAS : 'rgba(65,64,66,0.15)')
                       return [
                         <td key={`${m}a`} className="px-1.5 py-2 text-right tabular-nums text-[11px] font-semibold border-l" style={{ color: t.plan ? GRAFITE : 'rgba(65,64,66,0.15)', borderColor: 'rgba(66,44,118,0.07)' }}>
                           {fmt(t.plan)}
                         </td>,
-                        <td key={`${m}b`} className="px-1.5 py-2 text-right tabular-nums text-[11px] font-bold" style={{ color: t.fc ? LILAS : 'rgba(65,64,66,0.15)' }}>
-                          {fmt(t.fc)}
+                        <td key={`${m}b`} className="px-1.5 py-2 text-right tabular-nums text-[11px] font-bold" style={{ color: collColor }}>
+                          {fmt(collVal)}
                         </td>,
                       ]
                     })}
@@ -925,6 +933,14 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                                 {mbFc ? fmt(mbFc) : '—'}
                               </span>
                             )
+                          case 'refExternal': {
+                            const refExt = md?.refExternal ?? 0
+                            return makeTd(
+                              <span style={{ color: refExt > 0 ? '#00b870' : 'rgba(65,64,66,0.15)' }}>
+                                {refExt > 0 ? fmt(refExt) : '—'}
+                              </span>
+                            )
+                          }
                           case 'weekComment':
                             return (
                               <td key={`${m}-${i}`} className="px-1.5 py-1 text-left" style={bdr}>
@@ -941,13 +957,17 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                       })
                     }
 
-                    // Collapsed: PLANO + FC
+                    // Collapsed: PLANO + FATURADO (passado/atual) ou PLANO + FC (futuro)
+                    const collClientVal = m <= currentMonth ? faturado : fc
+                    const collClientColor = m <= currentMonth
+                      ? (faturado > 0 ? '#00b870' : 'rgba(65,64,66,0.18)')
+                      : (fc !== plan ? LILAS : '#9a8fb5')
                     return [
                       <td key={`${m}a`} className="px-1.5 py-1.5 text-right tabular-nums text-[11px] border-l" style={{ color: plan ? GRAFITE : 'rgba(65,64,66,0.18)', borderColor: 'rgba(66,44,118,0.07)' }}>
                         {plan ? fmt(plan) : '—'}
                       </td>,
-                      <td key={`${m}b`} className="px-1.5 py-1.5 text-right tabular-nums text-[11px] font-semibold" style={{ color: fc !== plan ? LILAS : '#9a8fb5' }}>
-                        {fc ? fmt(fc) : '—'}
+                      <td key={`${m}b`} className="px-1.5 py-1.5 text-right tabular-nums text-[11px] font-semibold" style={{ color: collClientColor }}>
+                        {collClientVal ? fmt(collClientVal) : '—'}
                       </td>,
                     ]
                   })}
@@ -985,13 +1005,14 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                       case 'desvioPlano':  return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.fc - t.plan)}</td>
                       case 'mbPlan':       return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.mbPlan)}</td>
                       case 'mbFc':         return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums" style={{ ...bdr, color: 'rgba(255,255,255,0.5)' }}>{fmt(t.mbFc)}</td>
+                      case 'refExternal':  return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums" style={{ ...bdr, color: t.refExternal > 0 ? VERDE : 'rgba(255,255,255,0.2)' }}>{t.refExternal > 0 ? fmt(t.refExternal) : '—'}</td>
                       default:             return <td key={`${m}-${i}`} style={bdr} />
                     }
                   })
                 }
                 return [
                   <td key={`${m}a`} className="px-1.5 py-2.5 text-right font-bold text-white text-[11px] tabular-nums border-l" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>{fmt(t.plan)}</td>,
-                  <td key={`${m}b`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ color: 'rgba(255,255,255,0.7)' }}>{fmt(t.fc)}</td>,
+                  <td key={`${m}b`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ color: m <= currentMonth ? (t.faturado > 0 ? VERDE : 'rgba(255,255,255,0.3)') : 'rgba(255,255,255,0.7)' }}>{fmt(m <= currentMonth ? t.faturado : t.fc)}</td>,
                 ]
               })}
               <td className="px-2 py-2.5 text-right font-extrabold text-[12px] tabular-nums text-white border-l" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>

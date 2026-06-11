@@ -5,7 +5,7 @@ import { ForecastMatrix, ClientData } from '@/components/forecast/ForecastMatrix
 const YEAR = 2026
 
 async function getMatrixData(): Promise<ClientData[]> {
-  const [clients, budgetEntries, weeklyActuals, comments] = await Promise.all([
+  const [clients, budgetEntries, weeklyActuals, comments, refExternals] = await Promise.all([
     db.client.findMany({
       where: { isActive: true },
       select: {
@@ -45,6 +45,11 @@ async function getMatrixData(): Promise<ClientData[]> {
       select: { clientId: true, month: true, comment: true },
       orderBy: { updatedAt: 'desc' },
     }),
+    db.actualNF.groupBy({
+      by: ['clientId', 'year', 'month'],
+      where: { year: YEAR, processRef: { not: null }, clientId: { not: null } },
+      _sum: { totNet: true },
+    }),
   ])
 
   // Faturado real do Conexos (soma de ActualWeekly por cliente/mês)
@@ -67,6 +72,14 @@ async function getMatrixData(): Promise<ClientData[]> {
     if (!commentMap.has(k)) commentMap.set(k, c.comment)
   }
 
+  // Referência externa: ActualNF WHERE processRef IS NOT NULL, agregado por cliente/mês
+  const refExtMap = new Map<string, number>()
+  for (const r of refExternals) {
+    if (r.clientId) {
+      refExtMap.set(`${r.clientId}:${r.month}`, r._sum.totNet ?? 0)
+    }
+  }
+
   return clients.map(c => {
     const months: ClientData['months'] = {}
 
@@ -86,6 +99,7 @@ async function getMatrixData(): Promise<ClientData[]> {
         lastWeek:      b?.lastWeek ?? null,
         mbPlan:        b?.mbPlanPct ?? null,
         mbFc:          b?.mbFcPct  ?? null,
+        refExternal:   refExtMap.get(`${c.id}:${m}`) ?? 0,
         weekComment:   commentMap.get(`${c.id}:${m}`) ?? null,
       }
     }
