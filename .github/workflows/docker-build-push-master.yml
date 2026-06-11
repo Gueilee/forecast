@@ -18,6 +18,9 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v3
 
+      - name: Gerar tag única de build
+        run: echo "BUILD_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -50,17 +53,22 @@ jobs:
       - name: Build Docker image
         run: docker build -t vendemmia-forecast .
 
-      - name: Tag Docker image
-        run: docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast
+      - name: Tag Docker image (latest + build tag)
+        run: |
+          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:latest
+          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:${{ env.BUILD_TAG }}
 
       - name: Push Docker image to Azure Container Registry
-        run: docker push vdmprod.azurecr.io/samples/vendemmia-forecast
+        run: |
+          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:latest
+          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:${{ env.BUILD_TAG }}
 
       - name: Recriar container no Portainer
         env:
           PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
           PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
           ACR_AUTH_B64: ${{ secrets.AZURE_ACR_AUTH_B64 }}
+          BUILD_TAG: ${{ env.BUILD_TAG }}
         run: python3 .github/scripts/portainer_deploy.py
 
       - name: Remover imagens Docker não utilizadas
