@@ -17,23 +17,30 @@ async function getBuData() {
 
   const results = await Promise.all(
     entities.map(async (entity) => {
-      const [budget, actual] = await Promise.all([
+      const [budget, weeklyActual, budgetFaturado] = await Promise.all([
         db.budgetEntry.aggregate({
           where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
           _sum: { plan: true, fcMonth: true },
         }),
-        // Usa ActualNF.buName para faturado real (captura todas as NFs, não só clientes linkados)
-        db.actualNF.aggregate({
-          where: { year: YEAR, month: { lte: CURRENT_MONTH }, buName: entity },
-          _sum: { totNet: true },
+        // Faturado real: ActualWeekly (mesma fonte do Forecast Matrix)
+        db.actualWeekly.aggregate({
+          where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
+          _sum: { totFaturado: true },
+        }),
+        // Fallback: faturado do Excel (BudgetEntry.faturado) — usado quando Conexos ainda não sincronizou
+        db.budgetEntry.aggregate({
+          where: { year: YEAR, month: { lte: CURRENT_MONTH }, client: { entity } },
+          _sum: { faturado: true },
         }),
       ])
 
-      const plan     = budget._sum.plan ?? 0
-      const fc       = budget._sum.fcMonth ?? plan
-      const faturado = actual._sum.totNet ?? 0
-      const desvio   = faturado - plan
-      const atingPct = plan > 0 ? (faturado / plan) * 100 : 0
+      const plan      = budget._sum.plan ?? 0
+      const fc        = budget._sum.fcMonth ?? plan
+      const cnxsFat   = weeklyActual._sum.totFaturado ?? 0
+      const excelFat  = budgetFaturado._sum.faturado ?? 0
+      const faturado  = cnxsFat > 0 ? cnxsFat : excelFat
+      const desvio    = faturado - plan
+      const atingPct  = plan > 0 ? (faturado / plan) * 100 : 0
 
       return { entity, plan, fc, faturado, desvio, mbPct: 0, atingPct }
     })
