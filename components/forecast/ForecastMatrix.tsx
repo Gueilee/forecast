@@ -345,9 +345,11 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [expandedMonths, setExpandedMonths] = useState<Set<number>>(() => new Set([currentMonth]))
-  const [filterBU,  setFilterBU]  = useState('all')
-  const [filterCOM, setFilterCOM] = useState('all')
-  const [search,    setSearch]    = useState('')
+  const [filterBU,   setFilterBU]   = useState('all')
+  const [filterCOM,  setFilterCOM]  = useState('all')
+  const [filterMOD,  setFilterMOD]  = useState('all')
+  const [filterCNTA, setFilterCNTA] = useState('all')
+  const [search,     setSearch]     = useState('')
 
   // Valores editados localmente (otimista)
   const [localEdits, setLocalEdits] = useState<Map<string, number | string | null>>(() => new Map())
@@ -361,13 +363,15 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
     for (const n of treeNodes) {
       if (n.type !== 'client') continue
       const c = n.data
-      if (filterBU  !== 'all' && c.entity        !== filterBU)  continue
-      if (filterCOM !== 'all' && c.commercialType !== filterCOM) continue
+      if (filterBU   !== 'all' && c.entity        !== filterBU)   continue
+      if (filterCOM  !== 'all' && c.commercialType !== filterCOM)  continue
+      if (filterMOD  !== 'all' && c.modality       !== filterMOD)  continue
+      if (filterCNTA !== 'all' && c.accountManager !== filterCNTA) continue
       if (q && !(c.nameReduced ?? '').toLowerCase().includes(q)) continue
       ids.add(c.id)
     }
     return ids
-  }, [treeNodes, filterBU, filterCOM, search])
+  }, [treeNodes, filterBU, filterCOM, filterMOD, filterCNTA, search])
 
   // Grupos que têm ao menos 1 filho filtrado
   const activeGroups = useMemo(() => {
@@ -460,18 +464,23 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
   // Options for filter dropdowns
   const opts = useMemo(() => {
-    const bu = new Set<string>(), com = new Set<string>()
+    const bu = new Set<string>(), com = new Set<string>(),
+          mod = new Set<string>(), cnt = new Set<string>()
     for (const c of clients) {
       if (c.entity)         bu.add(c.entity)
       if (c.commercialType) com.add(c.commercialType)
+      if (c.modality)       mod.add(c.modality)
+      if (c.accountManager) cnt.add(c.accountManager)
     }
-    return { bu: [...bu].sort(), com: [...com].sort() }
+    return { bu: [...bu].sort(), com: [...com].sort(), mod: [...mod].sort(), cnt: [...cnt].sort() }
   }, [clients])
 
-  const filterSel = (filterBU !== 'all' || filterCOM !== 'all' || search !== '')
+  const filterSel = (filterBU !== 'all' || filterCOM !== 'all' ||
+    filterMOD !== 'all' || filterCNTA !== 'all' || search !== '')
 
   const resetFilters = () => {
-    setFilterBU('all'); setFilterCOM('all'); setSearch('')
+    setFilterBU('all'); setFilterCOM('all')
+    setFilterMOD('all'); setFilterCNTA('all'); setSearch('')
   }
 
   return (
@@ -500,8 +509,10 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
         {/* Filtros */}
         {([
-          ['BU',       filterBU,  setFilterBU,  opts.bu,  'Todas as BUs'],
-          ['CATEGORIA', filterCOM, setFilterCOM, opts.com, 'Todas Categorias'],
+          ['BU',         filterBU,   setFilterBU,   opts.bu,  'Todas as BUs'],
+          ['CATEGORIA',  filterCOM,  setFilterCOM,  opts.com, 'Todas Categorias'],
+          ['MODALIDADE', filterMOD,  setFilterMOD,  opts.mod, 'Todas Modalidades'],
+          ['CONTA',      filterCNTA, setFilterCNTA, opts.cnt, 'Todas Contas'],
         ] as const).map(([label, val, setter, options, placeholder]) => (
           <div key={label} className="flex items-center gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>{label}</span>
