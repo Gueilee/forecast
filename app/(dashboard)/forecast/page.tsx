@@ -45,15 +45,15 @@ async function getMatrixData(): Promise<ClientData[]> {
       select: { clientId: true, month: true, comment: true },
       orderBy: { updatedAt: 'desc' },
     }),
-    db.$queryRaw<{ clientId: string; month: number; cnt: bigint }[]>`
-      SELECT "clientId", month, COUNT(DISTINCT "refCliente") as cnt
-      FROM "ActualNF"
-      WHERE year = ${YEAR}
-        AND "refCliente" IS NOT NULL
-        AND "clientId"  IS NOT NULL
-        AND (scope IS NULL OR scope NOT LIKE 'ENT%')
-      GROUP BY "clientId", month
-    `,
+    db.actualNF.findMany({
+      where: {
+        year: YEAR,
+        refCliente: { not: null },
+        clientId:   { not: null },
+        NOT: { scope: { startsWith: 'ENT' } },
+      },
+      select: { clientId: true, month: true, refCliente: true },
+    }),
   ])
 
   // Faturado real do Conexos (soma de ActualWeekly por cliente/mês)
@@ -77,10 +77,14 @@ async function getMatrixData(): Promise<ClientData[]> {
   }
 
   // Referência externa: COUNT DISTINCT refCliente (saída) por cliente/mês
-  const refExtMap = new Map<string, number>()
+  const refExtSets = new Map<string, Set<string>>()
   for (const r of refExternals) {
-    refExtMap.set(`${r.clientId}:${r.month}`, Number(r.cnt))
+    const k = `${r.clientId}:${r.month}`
+    if (!refExtSets.has(k)) refExtSets.set(k, new Set())
+    refExtSets.get(k)!.add(r.refCliente!)
   }
+  const refExtMap = new Map<string, number>()
+  refExtSets.forEach((set, k) => refExtMap.set(k, set.size))
 
   return clients.map(c => {
     const months: ClientData['months'] = {}
