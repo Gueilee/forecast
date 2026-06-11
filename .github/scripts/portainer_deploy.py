@@ -3,13 +3,30 @@ Deploy do Forecast no Portainer via Docker container API.
 Estratégia: pull nova imagem (tag única por build) → stop + rm + create + start.
 Isso evita completamente o problema de cache do 'latest' no host Docker.
 """
-import os, json, sys, urllib.request, urllib.error, ssl
+import os, json, sys, base64, urllib.request, urllib.error, ssl
 
 BASE      = "https://191.233.21.33:9000"
 EP        = 3
 BUILD_TAG = os.environ.get("BUILD_TAG", "latest")
 REPO      = "vdmprod.azurecr.io/samples/vendemmia-forecast"
 IMAGE     = f"{REPO}:{BUILD_TAG}"
+
+# Gera X-Registry-Auth para o ACR
+# Tenta ACR_AUTH_B64 primeiro; se não estiver configurado, monta do username+password
+def get_acr_auth():
+    token = os.environ.get("ACR_AUTH_B64", "").strip()
+    if token:
+        return token
+    user = os.environ.get("ACR_USERNAME", "").strip()
+    pwd  = os.environ.get("ACR_PASSWORD", "").strip()
+    if user and pwd:
+        payload = json.dumps({"username": user, "password": pwd,
+                              "serveraddress": "vdmprod.azurecr.io"})
+        encoded = base64.b64encode(payload.encode()).decode()
+        print(f"   ACR_AUTH_B64 gerado de ACR_USERNAME={user}")
+        return encoded
+    print("⚠️  Nenhuma credencial ACR configurada (ACR_AUTH_B64 ou ACR_USERNAME+ACR_PASSWORD)")
+    return ""
 
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -52,7 +69,7 @@ print("✅ Autenticado")
 
 # ── Pull da imagem com tag única ───────────────────────────────────────────────
 print(f"\n=== Pull {IMAGE} ===")
-acr_auth = os.environ.get("ACR_AUTH_B64", "")
+acr_auth = get_acr_auth()
 st, _ = p.call(
     "POST",
     f"/api/endpoints/{EP}/docker/v1.41/images/create"

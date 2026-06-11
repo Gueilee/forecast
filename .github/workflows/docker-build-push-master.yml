@@ -16,13 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Gerar tag única de build
         run: echo "BUILD_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Copiar Dockerfile.prod para Dockerfile
         run: cp Dockerfile.prod Dockerfile
@@ -44,31 +41,31 @@ jobs:
           sed -i "s|^MAILER_DSN=.*|MAILER_DSN=$MAILER_DSN_ESCAPED|g" .env.docker.prod
 
       - name: Login to Azure Container Registry
-        uses: azure/docker-login@v1
+        uses: docker/login-action@v3
         with:
-          login-server: vdmprod.azurecr.io
+          registry: vdmprod.azurecr.io
           username: ${{ vars.AZURE_ACR_USERNAME_PROD }}
           password: ${{ secrets.AZURE_ACR_PASSWORD_PROD }}
 
       - name: Build Docker image
         run: docker build -t vendemmia-forecast .
 
-      - name: Tag Docker image (latest + build tag)
+      - name: Tag e Push para Azure ACR
         run: |
           docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:latest
-          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:${{ env.BUILD_TAG }}
-
-      - name: Push Docker image to Azure Container Registry
-        run: |
+          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
           docker push vdmprod.azurecr.io/samples/vendemmia-forecast:latest
-          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:${{ env.BUILD_TAG }}
+          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
+          echo "Imagem publicada: vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG"
 
       - name: Recriar container no Portainer
         env:
           PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
           PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
           ACR_AUTH_B64: ${{ secrets.AZURE_ACR_AUTH_B64 }}
-          BUILD_TAG: ${{ env.BUILD_TAG }}
+          ACR_USERNAME: ${{ vars.AZURE_ACR_USERNAME_PROD }}
+          ACR_PASSWORD: ${{ secrets.AZURE_ACR_PASSWORD_PROD }}
+          # BUILD_TAG já está no ambiente via $GITHUB_ENV — não precisa de ${{ env.BUILD_TAG }}
         run: python3 .github/scripts/portainer_deploy.py
 
       - name: Remover imagens Docker não utilizadas
