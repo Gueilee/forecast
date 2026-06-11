@@ -49,46 +49,34 @@ jobs:
           echo "✅ Login ACR OK"
 
       - name: Build Docker image
-        run: |
-          echo "🔨 Iniciando docker build..."
-          docker build -t vendemmia-forecast . 2>&1
-          echo "✅ Build concluído"
+        run: docker build -t vendemmia-forecast .
 
-      - name: Tag e Push para Azure ACR
-        run: |
-          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:latest
-          docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
-          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:latest
-          docker push vdmprod.azurecr.io/samples/vendemmia-forecast:$BUILD_TAG
-          echo "✅ Push OK — tag: $BUILD_TAG"
+      - name: Tag Docker image
+        run: docker tag vendemmia-forecast vdmprod.azurecr.io/samples/vendemmia-forecast
+
+      - name: Push Docker image to Azure Container Registry
+        run: docker push vdmprod.azurecr.io/samples/vendemmia-forecast
 
       - name: Recriar container no Portainer
-        env:
-          PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
-          PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
-          ACR_AUTH_B64: ${{ secrets.AZURE_ACR_AUTH_B64 }}
-          ACR_USERNAME: ${{ vars.AZURE_ACR_USERNAME_PROD }}
-          ACR_PASSWORD: ${{ secrets.AZURE_ACR_PASSWORD_PROD }}
-        run: |
-          echo "🚀 Iniciando deploy no Portainer (BUILD_TAG=$BUILD_TAG)..."
-          python3 .github/scripts/portainer_deploy.py
-          echo "✅ Deploy concluído"
-
-      - name: Remover imagens Docker não utilizadas
-        env:
-          PORTAINER_USER: ${{ vars.PORTAINER_USER_PROD }}
-          PORTAINER_PASS: ${{ secrets.PORTAINER_PASS_PROD }}
         run: |
           TOKEN=$(curl -k -s -X POST "https://191.233.21.33:9000/api/auth" \
             -H "Content-Type: application/json" \
-            -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASS\"}" \
-            | jq -r '.jwt // empty' 2>/dev/null || true)
-          if [ -n "$TOKEN" ]; then
-            curl -k -s -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/images/prune" \
-              -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{}' -w "\nPrune HTTP %{http_code}\n" || true
-            echo "✅ Prune OK"
-          else
-            echo "⚠️  Token Portainer não obtido — pulando prune"
-          fi
+            -d '{"Username":"${{ vars.PORTAINER_USER_PROD }}","Password":"${{ secrets.PORTAINER_PASS_PROD }}"}' \
+            | grep -o '"jwt":"[^\"]*"' | cut -d':' -f2 | sed 's/["}]//g')
+          CONTAINER_ID=$(curl -k -s -X GET "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/containers/json?all=true&filters=%7B%22name%22%3A%5B%22vendemmia-forecast%22%5D%7D" \
+            -H "Authorization: Bearer $TOKEN" \
+            | grep -o '"Id":"[^"]*"' | head -n1 | cut -d':' -f2 | sed 's/"//g')
+          curl -k -X POST "https://191.233.21.33:9000/api/docker/3/containers/$CONTAINER_ID/recreate" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"PullImage":true}'
+
+      - name: Remover imagens Docker não utilizadas
+        run: |
+          TOKEN=$(curl -k -s -X POST "https://191.233.21.33:9000/api/auth" \
+            -H "Content-Type: application/json" \
+            -d '{"Username":"${{ vars.PORTAINER_USER_PROD }}","Password":"${{ secrets.PORTAINER_PASS_PROD }}"}' \
+            | grep -o '"jwt":"[^\"]*"' | cut -d':' -f2 | sed 's/["}]//g')
+          curl -k -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/images/prune" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json"
