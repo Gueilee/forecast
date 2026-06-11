@@ -47,10 +47,21 @@ class Portainer:
         try:
             with urllib.request.urlopen(rq, context=ctx) as r:
                 raw = r.read()
-                return r.status, (json.loads(raw) if raw else {})
+                if not raw:
+                    return r.status, {}
+                try:
+                    return r.status, json.loads(raw)
+                except json.JSONDecodeError:
+                    # Docker streaming APIs (ex: images/create) retornam NDJSON
+                    return r.status, {"_raw": raw.decode("utf-8", errors="replace")}
         except urllib.error.HTTPError as e:
             raw = e.read()
-            return e.code, (json.loads(raw) if raw else {"message": str(e)})
+            if not raw:
+                return e.code, {"message": str(e)}
+            try:
+                return e.code, json.loads(raw)
+            except json.JSONDecodeError:
+                return e.code, {"message": raw.decode("utf-8", errors="replace")}
 
 
 p = Portainer()
@@ -70,7 +81,7 @@ print("✅ Autenticado")
 # ── Pull da imagem com tag única ───────────────────────────────────────────────
 print(f"\n=== Pull {IMAGE} ===")
 acr_auth = get_acr_auth()
-st, _ = p.call(
+st, resp = p.call(
     "POST",
     f"/api/endpoints/{EP}/docker/v1.41/images/create"
     f"?fromImage={REPO}&tag={BUILD_TAG}",
@@ -78,7 +89,28 @@ st, _ = p.call(
 )
 print(f"HTTP {st}")
 if st not in (200, 201, 204):
-    print(f"❌ Pull da imagem {IMAGE} falhou — abortando deploy")
+    print(f"❌ Pull HTTP {st} — abortando")
+    sys.exit(1)
+
+# Docker NDJSON: verifica linhas de erro embutidas no stream
+raw_stream = resp.get("_raw", "")
+pull_error = None
+for line in raw_stream.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+        if "error" in obj:
+            pull_error = obj["error"]
+            break
+        if "status" in obj:
+            print(f"  {obj.get('status','')} {obj.get('id','')}")
+    except json.JSONDecodeError:
+        pass
+
+if pull_error:
+    print(f"❌ Erro no pull: {pull_error}")
     sys.exit(1)
 print("✅ Imagem baixada com sucesso")
 
