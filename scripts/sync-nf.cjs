@@ -159,7 +159,7 @@ async function main() {
 
     const { rows } = await oConn.execute(`
       SELECT DOC_COD, COD_CLIENTE, CLIENTE,
-             UND_NEGOCIO, TIPO_NF, PROC_CNX, FIS_DTA_EMISSAO,
+             UND_NEGOCIO, TIPO_NF, PROC_CNX, REF_CLIENTE, FIS_DTA_EMISSAO,
              TOT_LIQUIDO, TOT_PRODUTOS,
              VLR_MNY_ICMS, VLR_MNY_ICMSST, VLR_MNY_PIS, VLR_MNY_COFINS, VLR_MNY_IPI
       FROM VE3UB.VB_ANALISE_NF01
@@ -199,28 +199,30 @@ async function main() {
           sql: `INSERT INTO "ActualNF"
                   (id, "clientId", "conexosClientCode", "clientNameRaw", "buName",
                    filial, "invoiceNumber", "emissionDate",
-                   year, month, "weekOfMonth", scope, "processRef",
+                   year, month, "weekOfMonth", scope, "processRef", "refCliente",
                    "totProduct", "totNet", icms, "icmsSt", pis, cofins, ipi,
                    source, "syncJobId", "createdAt")
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT("invoiceNumber", filial) DO UPDATE SET
-                  "clientId"   = excluded."clientId",
-                  "buName"     = excluded."buName",
-                  "totNet"     = excluded."totNet",
-                  "totProduct" = excluded."totProduct",
-                  icms         = excluded.icms,
-                  "icmsSt"     = excluded."icmsSt",
-                  pis          = excluded.pis,
-                  cofins       = excluded.cofins,
-                  ipi          = excluded.ipi,
-                  "syncJobId"  = excluded."syncJobId"`,
+                  "clientId"    = excluded."clientId",
+                  "buName"      = excluded."buName",
+                  "totNet"      = excluded."totNet",
+                  "totProduct"  = excluded."totProduct",
+                  icms          = excluded.icms,
+                  "icmsSt"      = excluded."icmsSt",
+                  pis           = excluded.pis,
+                  cofins        = excluded.cofins,
+                  ipi           = excluded.ipi,
+                  "refCliente"  = excluded."refCliente",
+                  "syncJobId"   = excluded."syncJobId"`,
           args: [
             createId(), clientId, Number(r.COD_CLIENTE),
             String(r.CLIENTE || ''), buName,
             filial, docId, emIso,
             year, month, wom,
-            r.TIPO_NF  ? String(r.TIPO_NF)  : null,
-            r.PROC_CNX ? String(r.PROC_CNX) : null,
+            r.TIPO_NF      ? String(r.TIPO_NF)      : null,
+            r.PROC_CNX     ? String(r.PROC_CNX)     : null,
+            r.REF_CLIENTE  ? String(r.REF_CLIENTE)  : null,
             totProd, totNet, icms, icmsSt, pis, cofins, ipi,
             'CONEXOS', jobId, new Date().toISOString(),
           ],

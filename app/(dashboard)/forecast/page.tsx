@@ -45,11 +45,15 @@ async function getMatrixData(): Promise<ClientData[]> {
       select: { clientId: true, month: true, comment: true },
       orderBy: { updatedAt: 'desc' },
     }),
-    db.actualNF.groupBy({
-      by: ['clientId', 'year', 'month'],
-      where: { year: YEAR, processRef: { not: null }, clientId: { not: null } },
-      _sum: { totNet: true },
-    }),
+    db.$queryRaw<{ clientId: string; month: number; cnt: bigint }[]>`
+      SELECT "clientId", month, COUNT(DISTINCT "refCliente") as cnt
+      FROM "ActualNF"
+      WHERE year = ${YEAR}
+        AND "refCliente" IS NOT NULL
+        AND "clientId"  IS NOT NULL
+        AND (scope IS NULL OR scope NOT LIKE 'ENT%')
+      GROUP BY "clientId", month
+    `,
   ])
 
   // Faturado real do Conexos (soma de ActualWeekly por cliente/mês)
@@ -72,12 +76,10 @@ async function getMatrixData(): Promise<ClientData[]> {
     if (!commentMap.has(k)) commentMap.set(k, c.comment)
   }
 
-  // Referência externa: ActualNF WHERE processRef IS NOT NULL, agregado por cliente/mês
+  // Referência externa: COUNT DISTINCT refCliente (saída) por cliente/mês
   const refExtMap = new Map<string, number>()
   for (const r of refExternals) {
-    if (r.clientId) {
-      refExtMap.set(`${r.clientId}:${r.month}`, r._sum.totNet ?? 0)
-    }
+    refExtMap.set(`${r.clientId}:${r.month}`, Number(r.cnt))
   }
 
   return clients.map(c => {

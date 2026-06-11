@@ -95,6 +95,7 @@ model ActualNF {
   cfop              String?
   scope             String?
   processRef        String?
+  refCliente        String?
   totProduct        Float    @default(0)
   totNet            Float    @default(0)
   icms              Float?
