@@ -41,7 +41,7 @@ type GroupNode = {
   key:          string
   parentKey:    string
   ancestorKeys: string[]
-  level:        0 | 1 | 2 | 3 | 4
+  level:        0 | 1
   label:        string
   childCount:   number
   monthTotals:  Record<number, MonthTotals>
@@ -52,7 +52,7 @@ type ClientNode = {
   key:          string
   parentKey:    string
   ancestorKeys: string[]
-  level:        5
+  level:        2
   data:         ClientData
 }
 
@@ -83,23 +83,17 @@ const BU_PALETTE: Record<string, { color: string; bg: string }> = {
   'TRP':       { color: '#6b6570',bg: 'rgba(107,101,112,0.1)' },
 }
 
-const LEVEL_INDENT = [0, 16, 32, 48, 64, 80] as const
+const LEVEL_INDENT = [0, 16, 32] as const
 
 const LEVEL_BG = [
   '#f4f2f7',  // BU
-  '#f7f6f9',  // COMERCIAL
-  '#f9f8fb',  // 4PL
-  '#fbfafc',  // MODALIDADE
-  '#fdfcfe',  // CONTA
+  '#f7f6f9',  // Categoria
   '#ffffff',  // CLIENT
 ] as const
 
 const LEVEL_LABEL_COLOR = [
   LILAS,
   '#4a3a7a',
-  '#5a4e80',
-  '#6b617a',
-  '#7a7080',
   GRAFITE,
 ] as const
 
@@ -200,9 +194,7 @@ function buildTree(clients: ClientData[]): TreeNode[] {
   const sorted = [...clients].sort((a, b) =>
     (a.entity ?? '').localeCompare(b.entity ?? '', 'pt-BR') ||
     (a.commercialType ?? '').localeCompare(b.commercialType ?? '', 'pt-BR') ||
-    (a.pl4Bu ?? '').localeCompare(b.pl4Bu ?? '', 'pt-BR') ||
-    (a.modality ?? '').localeCompare(b.modality ?? '', 'pt-BR') ||
-    (a.accountManager ?? '').localeCompare(b.accountManager ?? '', 'pt-BR') ||
+    (a.sortOrder - b.sortOrder) ||
     (a.nameReduced ?? '').localeCompare(b.nameReduced ?? '', 'pt-BR')
   )
 
@@ -222,38 +214,11 @@ function buildTree(clients: ClientData[]): TreeNode[] {
         label: com, childCount: comClients.length, monthTotals: sumTotals(comClients),
       })
 
-      const byPL4 = groupBy(comClients, c => c.pl4Bu ?? '—')
-      for (const [pl4, pl4Clients] of Object.entries(byPL4)) {
-        const pl4Key = `${comKey}|pl4:${pl4}`
+      for (const c of comClients) {
         nodes.push({
-          type: 'group', level: 2, key: pl4Key, parentKey: comKey, ancestorKeys: [buKey, comKey],
-          label: pl4, childCount: pl4Clients.length, monthTotals: sumTotals(pl4Clients),
+          type: 'client', level: 2, key: `c:${c.id}`, parentKey: comKey,
+          ancestorKeys: [buKey, comKey], data: c,
         })
-
-        const byMOD = groupBy(pl4Clients, c => c.modality ?? '—')
-        for (const [mod, modClients] of Object.entries(byMOD)) {
-          const modKey = `${pl4Key}|mod:${mod}`
-          nodes.push({
-            type: 'group', level: 3, key: modKey, parentKey: pl4Key, ancestorKeys: [buKey, comKey, pl4Key],
-            label: mod, childCount: modClients.length, monthTotals: sumTotals(modClients),
-          })
-
-          const byCNTA = groupBy(modClients, c => c.accountManager ?? '—')
-          for (const [cnt, cntClients] of Object.entries(byCNTA)) {
-            const cntKey = `${modKey}|cnt:${cnt}`
-            nodes.push({
-              type: 'group', level: 4, key: cntKey, parentKey: modKey, ancestorKeys: [buKey, comKey, pl4Key, modKey],
-              label: cnt, childCount: cntClients.length, monthTotals: sumTotals(cntClients),
-            })
-            for (const c of cntClients) {
-              nodes.push({
-                type: 'client', level: 5, key: `c:${c.id}`, parentKey: cntKey,
-                ancestorKeys: [buKey, comKey, pl4Key, modKey, cntKey],
-                data: c,
-              })
-            }
-          }
-        }
       }
     }
   }
@@ -380,12 +345,9 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [expandedMonths, setExpandedMonths] = useState<Set<number>>(() => new Set([currentMonth]))
-  const [filterBU,    setFilterBU]    = useState('all')
-  const [filterCOM,   setFilterCOM]   = useState('all')
-  const [filterPL4,   setFilterPL4]   = useState('all')
-  const [filterMOD,   setFilterMOD]   = useState('all')
-  const [filterCNTA,  setFilterCNTA]  = useState('all')
-  const [search,      setSearch]      = useState('')
+  const [filterBU,  setFilterBU]  = useState('all')
+  const [filterCOM, setFilterCOM] = useState('all')
+  const [search,    setSearch]    = useState('')
 
   // Valores editados localmente (otimista)
   const [localEdits, setLocalEdits] = useState<Map<string, number | string | null>>(() => new Map())
@@ -399,16 +361,13 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
     for (const n of treeNodes) {
       if (n.type !== 'client') continue
       const c = n.data
-      if (filterBU   !== 'all' && c.entity         !== filterBU)   continue
-      if (filterCOM  !== 'all' && c.commercialType  !== filterCOM)  continue
-      if (filterPL4  !== 'all' && c.pl4Bu           !== filterPL4)  continue
-      if (filterMOD  !== 'all' && c.modality        !== filterMOD)  continue
-      if (filterCNTA !== 'all' && c.accountManager  !== filterCNTA) continue
+      if (filterBU  !== 'all' && c.entity        !== filterBU)  continue
+      if (filterCOM !== 'all' && c.commercialType !== filterCOM) continue
       if (q && !(c.nameReduced ?? '').toLowerCase().includes(q)) continue
       ids.add(c.id)
     }
     return ids
-  }, [treeNodes, filterBU, filterCOM, filterPL4, filterMOD, filterCNTA, search])
+  }, [treeNodes, filterBU, filterCOM, search])
 
   // Grupos que têm ao menos 1 filho filtrado
   const activeGroups = useMemo(() => {
@@ -501,30 +460,18 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
   // Options for filter dropdowns
   const opts = useMemo(() => {
-    const bu = new Set<string>(), com = new Set<string>(),
-      pl4 = new Set<string>(), mod = new Set<string>(), cnt = new Set<string>()
+    const bu = new Set<string>(), com = new Set<string>()
     for (const c of clients) {
       if (c.entity)         bu.add(c.entity)
       if (c.commercialType) com.add(c.commercialType)
-      if (c.pl4Bu)          pl4.add(c.pl4Bu)
-      if (c.modality)       mod.add(c.modality)
-      if (c.accountManager) cnt.add(c.accountManager)
     }
-    return {
-      bu:  [...bu].sort(),
-      com: [...com].sort(),
-      pl4: [...pl4].sort(),
-      mod: [...mod].sort(),
-      cnt: [...cnt].sort(),
-    }
+    return { bu: [...bu].sort(), com: [...com].sort() }
   }, [clients])
 
-  const filterSel = (filterBU !== 'all' || filterCOM !== 'all' || filterPL4 !== 'all' ||
-    filterMOD !== 'all' || filterCNTA !== 'all' || search !== '')
+  const filterSel = (filterBU !== 'all' || filterCOM !== 'all' || search !== '')
 
   const resetFilters = () => {
-    setFilterBU('all'); setFilterCOM('all'); setFilterPL4('all')
-    setFilterMOD('all'); setFilterCNTA('all'); setSearch('')
+    setFilterBU('all'); setFilterCOM('all'); setSearch('')
   }
 
   return (
@@ -553,11 +500,8 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
 
         {/* Filtros */}
         {([
-          ['BU', filterBU,   setFilterBU,   opts.bu,  'Todas as BUs'],
-          ['COMERCIAL', filterCOM, setFilterCOM, opts.com, 'Todo Comercial'],
-          ['4PL', filterPL4, setFilterPL4, opts.pl4, 'Todo 4PL'],
-          ['MODALIDADE', filterMOD, setFilterMOD, opts.mod, 'Todas Modalidades'],
-          ['CONTA', filterCNTA, setFilterCNTA, opts.cnt, 'Todas Contas'],
+          ['BU',       filterBU,  setFilterBU,  opts.bu,  'Todas as BUs'],
+          ['CATEGORIA', filterCOM, setFilterCOM, opts.com, 'Todas Categorias'],
         ] as const).map(([label, val, setter, options, placeholder]) => (
           <div key={label} className="flex items-center gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#9a8fb5' }}>{label}</span>
@@ -823,6 +767,21 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                     <span className="text-[11px] font-medium truncate block max-w-[220px]" style={{ color: GRAFITE }}>
                       {c.nameChart ?? c.nameReduced}
                     </span>
+                    {(c.pl4Bu || c.accountManager) && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {c.pl4Bu && (
+                          <span className="text-[9px] font-semibold px-1.5 rounded-full flex-shrink-0"
+                            style={{ background: 'rgba(66,44,118,0.08)', color: '#9a8fb5' }}>
+                            {c.pl4Bu}
+                          </span>
+                        )}
+                        {c.accountManager && (
+                          <span className="text-[9px] truncate max-w-[140px]" style={{ color: '#b0a8c0' }}>
+                            {c.accountManager}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   {MONTHS.flatMap(m => {
