@@ -48,13 +48,17 @@ print("✅ Autenticado no Portainer")
 
 # ── Pull da nova imagem via Docker proxy ─────────────────────────────────────
 print("\n=== Pull nova imagem ===")
-st, _ = p.call(
+st, pull_resp = p.call(
     "POST",
     f"/api/endpoints/{EP}/docker/v1.41/images/create"
     f"?fromImage=vdmprod.azurecr.io/samples/vendemmia-forecast&tag=latest",
     xh={"X-Registry-Auth": os.environ.get("ACR_AUTH_B64", "")},
 )
 print(f"HTTP {st}")
+if st not in (200, 201, 204):
+    print(f"⚠️  Pull retornou {st}: {pull_resp} — continuando mesmo assim")
+else:
+    print("✅ Pull concluído")
 
 # ── Listar Stacks ─────────────────────────────────────────────────────────────
 print("\n=== Stacks no Portainer ===")
