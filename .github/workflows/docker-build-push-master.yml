@@ -67,7 +67,12 @@ jobs:
           TOKEN=$(curl -k -s -X POST "https://191.233.21.33:9000/api/auth" \
             -H "Content-Type: application/json" \
             -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASS\"}" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin).get('jwt',''))")
-          [ -n "$TOKEN" ] && curl -k -s -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/images/prune" \
-            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
-          echo "✅ Prune concluído"
+            | jq -r '.jwt // empty' 2>/dev/null || true)
+          if [ -n "$TOKEN" ]; then
+            curl -k -s -X POST "https://191.233.21.33:9000/api/endpoints/3/docker/v1.41/images/prune" \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              -d '{}' -w "\nPrune HTTP %{http_code}\n" || true
+            echo "✅ Prune concluído"
+          else
+            echo "⚠️ Token Portainer não obtido — pulando prune"
+          fi
