@@ -8,8 +8,6 @@ export const dynamic = 'force-dynamic'
 const YEAR = 2026
 
 export async function GET(request: NextRequest) {
-  const CURRENT_MONTH = new Date().getMonth() + 1
-
   const sp     = request.nextUrl.searchParams
   const bu     = sp.get('bu')     ?? 'all'
   const com    = sp.get('com')    ?? 'all'
@@ -38,48 +36,36 @@ export async function GET(request: NextRequest) {
   // Spread `{ clientId: { in: clientIds } }` to avoid nullable type issues
   const byClient = { clientId: { in: clientIds } }
 
-  const [budgetTotals, actualYtd, planYtdAgg, monthlyBudget, monthlyActual] = await Promise.all([
+  const [budgetTotals, faturadoAgg, monthlyBudget] = await Promise.all([
     db.budgetEntry.aggregate({
       where: { year: YEAR, ...byClient },
       _sum: { plan: true, fcMonth: true },
     }),
-    db.actualNF.aggregate({
-      where: { year: YEAR, month: { lte: CURRENT_MONTH }, scope: 'SAÍDA', ...byClient },
-      _sum: { totNet: true },
-    }),
     db.budgetEntry.aggregate({
-      where: { year: YEAR, month: { lte: CURRENT_MONTH }, ...byClient },
-      _sum: { plan: true },
+      where: { year: YEAR, ...byClient },
+      _sum: { faturado: true },
     }),
     db.budgetEntry.groupBy({
       by: ['month'],
       where: { year: YEAR, ...byClient },
-      _sum: { plan: true, fcMonth: true },
-      orderBy: { month: 'asc' },
-    }),
-    db.actualNF.groupBy({
-      by: ['month'],
-      where: { year: YEAR, scope: 'SAÍDA', ...byClient },
-      _sum: { totNet: true },
+      _sum: { plan: true, fcMonth: true, faturado: true },
       orderBy: { month: 'asc' },
     }),
   ])
 
-  const planTotal      = budgetTotals._sum.plan    ?? 0
-  const fcTotal        = budgetTotals._sum.fcMonth ?? planTotal
-  const faturadoYtd    = actualYtd._sum.totNet     ?? 0
-  const planYtdValue   = planYtdAgg._sum.plan      ?? 0
-  const atingimentoPct = planYtdValue > 0 ? (faturadoYtd / planYtdValue) * 100 : 0
+  const planTotal      = budgetTotals._sum.plan     ?? 0
+  const fcTotal        = budgetTotals._sum.fcMonth  ?? planTotal
+  const faturadoYtd    = faturadoAgg._sum.faturado  ?? 0
+  const atingimentoPct = planTotal > 0 ? (faturadoYtd / planTotal) * 100 : 0
 
   const chartData = Array.from({ length: 12 }, (_, i) => {
     const m      = i + 1
     const budget = monthlyBudget.find(b => b.month === m)
-    const actual = monthlyActual.find(a => a.month === m)
     return {
       month:     MONTHS[i].substring(0, 3),
-      plano:     Math.round((budget?._sum.plan    ?? 0) / 1_000_000 * 10) / 10,
-      fc:        Math.round((budget?._sum.fcMonth ?? budget?._sum.plan ?? 0) / 1_000_000 * 10) / 10,
-      realizado: Math.round((actual?._sum.totNet  ?? 0) / 1_000_000 * 10) / 10,
+      plano:     Math.round((budget?._sum.plan     ?? 0) / 1_000_000 * 10) / 10,
+      fc:        Math.round((budget?._sum.fcMonth  ?? budget?._sum.plan ?? 0) / 1_000_000 * 10) / 10,
+      realizado: Math.round((budget?._sum.faturado ?? 0) / 1_000_000 * 10) / 10,
     }
   })
 
