@@ -51,13 +51,24 @@ prisma/*.db-wal
 prisma/*.db-shm
 prisma/prisma/
 
-# Planilha fonte (dados confidenciais, importada via script)
+# Planilhas fonte (dados confidenciais, importadas via script)
 oficial.xlsx
+oficial_2.xlsx
 
-# Scripts de diagnóstico/investigação (contêm credenciais hardcoded)
+# Scripts de diagnóstico/análise pontual (não fazem parte do produto)
 scripts/diagnostico-*.cjs
 scripts/investiga-*.cjs
 scripts/verify-fix.cjs
 scripts/read-excel-analysis.cjs
 scripts/update-admin.cjs
 scripts/migrate-password-token.cjs
+scripts/analyze-xlsx.cjs
+scripts/check-m6.cjs
+scripts/compare-bu-excel.cjs
+scripts/create-bu-ytd-table.cjs
+scripts/debug-match.cjs
+scripts/diagnose-bu.cjs
+scripts/diagnose-faturado.cjs
+scripts/fix-modality.cjs
+scripts/verify-import.cjs
+scripts/verify-ytd.cjs

@@ -2,14 +2,14 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useMemo } from 'react'
-import { Search, X } from 'lucide-react'
+import { Search, X, Loader2 } from 'lucide-react'
 import { KpiCards } from './KpiCards'
 import { RevenueChart } from './RevenueChart'
 import { BuSummaryTable } from './BuSummaryTable'
 import { DailyChart, DashboardFilters } from './DailyChart'
 
-const LILAS   = '#422c76'
-const GRAFITE = '#414042'
+const LILAS    = '#422c76'
+const GRAFITE  = '#414042'
 const OFFWHITE = '#faf9f5'
 const MAGENTA  = '#ff2f69'
 
@@ -29,15 +29,17 @@ export interface BuRowData {
   faturado: number
 }
 
+interface KpiData {
+  planTotal: number
+  fcTotal: number
+  faturadoYtd: number
+  atingimentoPct: number
+  mbPct: number
+  lastSync: Date | null
+}
+
 interface DashboardShellProps {
-  kpiData: {
-    planTotal: number
-    fcTotal: number
-    faturadoYtd: number
-    atingimentoPct: number
-    mbPct: number
-    lastSync: Date | null
-  }
+  kpiData: KpiData
   chartData: { month: string; plano: number; fc: number; realizado: number }[]
   clients: ClientMeta[]
   buData: BuRowData[]
@@ -46,15 +48,56 @@ interface DashboardShellProps {
 
 export function DashboardShell({ kpiData, chartData, clients, buData, currentMonth }: DashboardShellProps) {
   const router = useRouter()
+
   const [filters, setFilters] = useState<DashboardFilters>({
     bu: 'all', com: 'all', mod: 'all', conta: 'all', search: '',
   })
+
+  // Dynamic KPI/Chart state — updated by server refresh or filter change
+  const [dynKpi,    setDynKpi]    = useState<KpiData>(kpiData)
+  const [dynChart,  setDynChart]  = useState(chartData)
+  const [fetching,  setFetching]  = useState(false)
 
   // Hourly refresh of server data
   useEffect(() => {
     const id = setInterval(() => router.refresh(), 60 * 60 * 1000)
     return () => clearInterval(id)
   }, [router])
+
+  // Re-fetch filtered summary whenever filters change (debounced 300ms for search)
+  // Also fires on server refresh (kpiData/chartData change) to re-sync
+  useEffect(() => {
+    const active = filters.bu !== 'all' || filters.com !== 'all' || filters.mod !== 'all' || filters.conta !== 'all' || filters.search !== ''
+
+    if (!active) {
+      setDynKpi(kpiData)
+      setDynChart(chartData)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      const params = new URLSearchParams()
+      if (filters.bu    !== 'all') params.set('bu',    filters.bu)
+      if (filters.com   !== 'all') params.set('com',   filters.com)
+      if (filters.mod   !== 'all') params.set('mod',   filters.mod)
+      if (filters.conta !== 'all') params.set('conta', filters.conta)
+      if (filters.search)          params.set('search', filters.search)
+
+      setFetching(true)
+      try {
+        const res  = await fetch(`/api/dashboard/summary?${params}`)
+        const json = await res.json()
+        setDynKpi({ ...json.kpis, lastSync: kpiData.lastSync })
+        setDynChart(json.chartData)
+      } catch { /* silent */ }
+      setFetching(false)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  // kpiData.lastSync needs to be preserved; kpiData/chartData are included
+  // so a server refresh also re-triggers filtered fetch when filters are active
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, kpiData, chartData])
 
   // Dropdown options from client metadata
   const opts = useMemo(() => {
@@ -82,7 +125,7 @@ export function DashboardShell({ kpiData, chartData, clients, buData, currentMon
     }).length
   }, [clients, filters])
 
-  // BU rows filtered by entity selector
+  // BU rows filtered by entity selector (BuSummaryTable shows aggregate BU totals)
   const filteredBuData = useMemo(() => (
     filters.bu === 'all' ? buData : buData.filter(d => d.entity === filters.bu)
   ), [buData, filters.bu])
@@ -90,10 +133,10 @@ export function DashboardShell({ kpiData, chartData, clients, buData, currentMon
   const hasFilter = filters.bu !== 'all' || filters.com !== 'all' || filters.mod !== 'all' || filters.conta !== 'all' || filters.search !== ''
 
   const dropdowns: { label: string; key: keyof DashboardFilters; options: string[]; placeholder: string }[] = [
-    { label: 'BU',         key: 'bu',    options: opts.bu,  placeholder: 'Todas as BUs'       },
-    { label: 'CATEGORIA',  key: 'com',   options: opts.com, placeholder: 'Todas Categorias'   },
-    { label: 'MODALIDADE', key: 'mod',   options: opts.mod, placeholder: 'Todas Modalidades'  },
-    { label: 'CONTA',      key: 'conta', options: opts.cnt, placeholder: 'Todas Contas'        },
+    { label: 'BU',         key: 'bu',    options: opts.bu,  placeholder: 'Todas as BUs'      },
+    { label: 'CATEGORIA',  key: 'com',   options: opts.com, placeholder: 'Todas Categorias'  },
+    { label: 'MODALIDADE', key: 'mod',   options: opts.mod, placeholder: 'Todas Modalidades' },
+    { label: 'CONTA',      key: 'conta', options: opts.cnt, placeholder: 'Todas Contas'       },
   ]
 
   return (
@@ -155,20 +198,26 @@ export function DashboardShell({ kpiData, chartData, clients, buData, currentMon
           </button>
         )}
 
-        <div className="ml-auto text-[11px] tabular-nums font-medium" style={{ color: '#b8b0ca' }}>
-          {matchedCount} clientes
+        <div className="ml-auto flex items-center gap-2">
+          {fetching && (
+            <div className="flex items-center gap-1 text-[11px]" style={{ color: '#9a8fb5' }}>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Atualizando...</span>
+            </div>
+          )}
+          <span className="text-[11px] tabular-nums font-medium" style={{ color: '#b8b0ca' }}>
+            {matchedCount} clientes
+          </span>
         </div>
       </div>
 
       {/* ── KPI cards ──────────────────────────────────────────────────────── */}
-      <KpiCards {...kpiData} />
+      <KpiCards {...dynKpi} />
 
-      {/* ── Gráficos + BU — grid sem buraco ────────────────────────────────── */}
-      {/* Left col (2/3): RevenueChart empilhado com DailyChart               */}
-      {/* Right col (1/3): BuSummaryTable cobre toda a altura                 */}
+      {/* ── Gráficos + BU ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 flex flex-col gap-4">
-          <RevenueChart data={chartData} />
+          <RevenueChart data={dynChart} />
           <DailyChart filters={filters} month={currentMonth} />
         </div>
         <BuSummaryTable data={filteredBuData} />
