@@ -11,5 +11,6 @@ prisma/*.db-wal
 *.log
 .DS_Store
 README.md
-scripts/
+scripts/export-*.cjs
+scripts/read-*.cjs
 oficial.xlsx
