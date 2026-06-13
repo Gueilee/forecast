@@ -16,6 +16,7 @@ import {
   Tv,
   PanelLeftClose,
   PanelLeftOpen,
+  PencilLine,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,8 +38,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Visão Geral',
     items: [
-      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',       roles: ALL_ROLES },
-      { href: '/forecast',  icon: Table2,          label: 'Forecast Matrix', roles: ALL_ROLES },
+      { href: '/dashboard',                icon: LayoutDashboard, label: 'Dashboard',         roles: ALL_ROLES },
+      { href: '/forecast',                 icon: Table2,          label: 'Forecast Matrix',   roles: ALL_ROLES },
+      { href: '/forecast/faturado-manual', icon: PencilLine,      label: 'Lançamento Manual', roles: ALL_ROLES },
     ],
   },
   {

@@ -49,6 +49,7 @@ model Client {
   conexosCode       Int?
   conexosName       String?
   isActive          Boolean            @default(true)
+  isManual          Boolean            @default(false)
   faturadoYtd       Float?             @default(0)
   sortOrder         Int                @default(0)   @unique
   createdAt         DateTime           @default(now())
