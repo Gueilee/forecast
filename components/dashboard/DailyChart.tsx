@@ -98,7 +98,7 @@ export function DailyChart({ filters, month }: { filters: DashboardFilters; mont
           Sem dados para o período selecionado
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={272}>
+        <ResponsiveContainer width="100%" height={248}>
           <ComposedChart data={data} margin={{ top: 4, right: 48, left: -8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(66,44,118,0.07)" vertical={false} />
             <XAxis
