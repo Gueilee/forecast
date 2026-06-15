@@ -54,15 +54,15 @@ function DailyTooltip({ active, payload, label }: {
   )
 }
 
-// Rótulo customizado para barras de faturado — exibe apenas valores > 0
-function FatLabel(props: Record<string, unknown>) {
-  const { x, y, width, value } = props as { x: number; y: number; width: number; value: number }
-  if (!value || value === 0) return null
-  const formatted = value >= 1e6
-    ? `${(value / 1e6).toFixed(1)}M`
-    : value >= 1e3
-    ? `${Math.round(value / 1e3)}K`
-    : String(Math.round(value))
+// Rótulo customizado para barras — exibe apenas valores > 0
+function BarLabel({ x, y, width, value, fill }: Record<string, unknown> & { fill?: string }) {
+  const v = Number(value)
+  if (!v || v === 0) return null
+  const formatted = v >= 1e6
+    ? `${(v / 1e6).toFixed(1)}M`
+    : v >= 1e3
+    ? `${Math.round(v / 1e3)}K`
+    : String(Math.round(v))
   return (
     <text
       x={Number(x) + Number(width) / 2}
@@ -70,12 +70,15 @@ function FatLabel(props: Record<string, unknown>) {
       textAnchor="middle"
       fontSize={8.5}
       fontWeight={600}
-      fill="#01a86a"
+      fill={fill ?? '#01a86a'}
     >
       {formatted}
     </text>
   )
 }
+
+const FatLabel   = (props: Record<string, unknown>) => <BarLabel {...props} fill="#01a86a" />
+const ProcLabel  = (props: Record<string, unknown>) => <BarLabel {...props} fill="#e8205a" />
 
 export function DailyChart({ filters, month }: { filters: DashboardFilters; month: number }) {
   const [data, setData]             = useState<DayData[]>([])
@@ -193,7 +196,9 @@ export function DailyChart({ filters, month }: { filters: DashboardFilters; mont
             <Bar yAxisId="fat" dataKey="faturado" name="Faturado" fill={VERDE} radius={[3, 3, 0, 0]}>
               <LabelList content={<FatLabel />} />
             </Bar>
-            <Bar yAxisId="proc" dataKey="processos" name="Processos" fill={MAGENTA} radius={[3, 3, 0, 0]} opacity={0.75} />
+            <Bar yAxisId="proc" dataKey="processos" name="Processos" fill={MAGENTA} radius={[3, 3, 0, 0]} opacity={0.75}>
+              <LabelList content={<ProcLabel />} />
+            </Bar>
           </ComposedChart>
         </ResponsiveContainer>
       )}

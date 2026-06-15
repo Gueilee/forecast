@@ -127,14 +127,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
             dot={{ fill: MAGENTA, r: 3.5, strokeWidth: 0 }}
             activeDot={{ r: 5, fill: MAGENTA }}
             strokeDasharray="5 3"
-          >
-            <LabelList
-              dataKey="fc"
-              position="top"
-              formatter={(v) => Number(v) > 0 ? `${v}M` : ''}
-              style={{ fontSize: 9, fill: MAGENTA, fontWeight: 700 }}
-            />
-          </Line>
+          />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
