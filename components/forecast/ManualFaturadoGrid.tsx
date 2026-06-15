@@ -2,11 +2,9 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Save, CheckCircle2, AlertCircle, PencilLine, Building2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Save, CheckCircle2, AlertCircle, Building2 } from 'lucide-react'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-
 const CURRENT_MONTH = new Date().getMonth() + 1
 
 export type ManualClient = {
@@ -18,30 +16,46 @@ export type ManualClient = {
   budgetEntries: { month: number; faturado: number | null; plan: number }[]
 }
 
-function fmtCurrency(v: number) {
+/** Formata valor para exibição dentro da célula de input */
+function fmtInput(v: number): string {
   if (v === 0) return ''
   if (Math.abs(v) >= 1_000_000)
-    return 'R$' + (v / 1_000_000).toFixed(2).replace('.', ',') + 'M'
-  return 'R$' + v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    return (v / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'M'
+  if (Math.abs(v) >= 1_000)
+    return Math.round(v / 1_000) + 'K'
+  return String(Math.round(v))
 }
 
+/** Formata valor para a coluna Total e rodapé */
+function fmtCurrency(v: number): string {
+  if (v === 0) return '—'
+  if (Math.abs(v) >= 1_000_000)
+    return 'R$ ' + (v / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'M'
+  return 'R$ ' + v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+}
+
+/**
+ * Converte string digitada pelo usuário em número (R$).
+ * Aceita: "1,25M", "1.25M", "750K", "750k", "1250000", "1.250.000", "1,250,000"
+ */
 function parseNumber(s: string): number {
-  const clean = s.replace(/[R$M\s]/g, '').replace(',', '.')
-  const n = parseFloat(clean)
-  if (isNaN(n)) return 0
-  // Se digitou algo como "1.5M" → 1500000
-  if (s.includes('M') || s.includes('m')) return n * 1_000_000
-  return n
+  if (!s.trim()) return 0
+  const upper = s.trim().toUpperCase()
+  if (upper.endsWith('M')) {
+    const n = upper.slice(0, -1).replace(/\./g, '').replace(',', '.')
+    return (parseFloat(n) || 0) * 1_000_000
+  }
+  if (upper.endsWith('K')) {
+    const n = upper.slice(0, -1).replace(/\./g, '').replace(',', '.')
+    return (parseFloat(n) || 0) * 1_000
+  }
+  // BRL: pontos como milhar, vírgula como decimal
+  const n = upper.replace(/\./g, '').replace(',', '.')
+  return parseFloat(n) || 0
 }
 
-type CellState = {
-  value: string       // valor exibido no input
-  original: number    // valor original ao abrir
-  saved: boolean      // foi salvo com sucesso
-  dirty: boolean      // foi editado
-}
-
-type GridState = Record<string, Record<number, CellState>> // clientId → month → CellState
+type CellState = { value: string; original: number; saved: boolean; dirty: boolean }
+type GridState  = Record<string, Record<number, CellState>>
 
 function buildInitialState(clients: ManualClient[]): GridState {
   const state: GridState = {}
@@ -50,15 +64,15 @@ function buildInitialState(clients: ManualClient[]): GridState {
     for (let m = 1; m <= 12; m++) {
       const entry = c.budgetEntries.find(e => e.month === m)
       const v     = entry?.faturado ?? 0
-      state[c.id][m] = { value: v === 0 ? '' : (v / 1_000_000).toFixed(3).replace('.', ','), original: v, saved: false, dirty: false }
+      state[c.id][m] = { value: fmtInput(v), original: v, saved: false, dirty: false }
     }
   }
   return state
 }
 
 export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
-  const [grid,    setGrid]    = useState<GridState>(() => buildInitialState(clients))
-  const [saving,  setSaving]  = useState<Record<string, boolean>>({})
+  const [grid,   setGrid]   = useState<GridState>(() => buildInitialState(clients))
+  const [saving, setSaving] = useState<Record<string, boolean>>({})
 
   const handleChange = useCallback((clientId: string, month: number, value: string) => {
     setGrid(prev => ({
@@ -85,13 +99,13 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, months }),
       })
-
       if (!res.ok) throw new Error('Erro ao salvar')
 
       setGrid(prev => {
         const updated = { ...prev[clientId] }
         for (const m in updated) {
-          updated[m] = { ...updated[m], saved: true, dirty: false, original: months[Number(m)] }
+          const raw = months[Number(m)]
+          updated[m] = { ...updated[m], saved: true, dirty: false, original: raw, value: fmtInput(raw) }
         }
         return { ...prev, [clientId]: updated }
       })
@@ -111,67 +125,70 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
     }
   }, [grid, clients])
 
-  const isDirty = (clientId: string) =>
-    Object.values(grid[clientId] ?? {}).some(c => c.dirty)
+  const isDirty  = (cid: string) => Object.values(grid[cid] ?? {}).some(c => c.dirty)
+  const rowTotal = (cid: string) => Object.values(grid[cid] ?? {}).reduce((sum, c) => sum + parseNumber(c.value), 0)
 
-  const rowTotal = (clientId: string) =>
-    Object.values(grid[clientId] ?? {}).reduce((sum, c) => sum + (c.value ? parseNumber(c.value) : 0), 0)
-
-  // Totais por coluna (mês)
   const colTotals = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1
-    return clients.reduce((sum, c) => {
-      const cell = grid[c.id]?.[m]
-      return sum + (cell?.value ? parseNumber(cell.value) : 0)
-    }, 0)
+    return clients.reduce((sum, c) => sum + parseNumber(grid[c.id]?.[m]?.value ?? ''), 0)
   })
-
   const grandTotal = colTotals.reduce((a, b) => a + b, 0)
 
+  const COL_TEMPLATE = '1fr 76px repeat(12, minmax(84px,1fr)) 110px 80px'
+
   return (
-    <div className="w-full overflow-x-auto">
-      <div className="min-w-[1200px]">
+    <div>
+      {/* Legend */}
+      <div className="flex items-center gap-5 mb-3">
+        {[
+          { bg: 'rgba(66,44,118,0.08)',   border: 'rgba(66,44,118,0.2)',  label: 'Mês atual'       },
+          { bg: 'rgba(251,191,36,0.15)',  border: 'rgba(245,158,11,0.5)', label: 'Editado'          },
+          { bg: 'rgba(1,225,142,0.12)',   border: 'rgba(1,193,122,0.4)',  label: 'Salvo'            },
+        ].map(({ bg, border, label }) => (
+          <div key={label} className="flex items-center gap-1.5 text-xs" style={{ color: '#6b6570' }}>
+            <div className="w-3 h-3 rounded-sm" style={{ background: bg, border: `1px solid ${border}` }} />
+            {label}
+          </div>
+        ))}
+      </div>
 
-        {/* ── Legenda ── */}
-        <div className="flex items-center gap-4 mb-4 px-1">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-            <div className="w-3 h-3 rounded-sm bg-violet-500/20 border border-violet-500/40" />
-            Mês atual
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-            <div className="w-3 h-3 rounded-sm bg-amber-500/20 border border-amber-500/40" />
-            Editado (não salvo)
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-            <div className="w-3 h-3 rounded-sm bg-emerald-500/20 border border-emerald-500/40" />
-            Salvo
-          </div>
-        </div>
+      <div
+        className="w-full overflow-x-auto rounded-2xl"
+        style={{ border: '1px solid rgba(66,44,118,0.1)', boxShadow: '0 2px 16px rgba(66,44,118,0.07)' }}
+      >
+        <div className="min-w-[1200px]">
 
-        <div className="rounded-xl border border-white/10 overflow-hidden shadow-lg">
-          {/* ── Header da tabela ── */}
+          {/* Table header */}
           <div
-            className="grid text-xs font-semibold text-zinc-300 uppercase tracking-wider bg-zinc-900/80"
-            style={{ gridTemplateColumns: '1fr 80px repeat(12, minmax(90px,1fr)) 110px 80px' }}
+            className="grid text-[11px] font-semibold uppercase tracking-wider"
+            style={{
+              gridTemplateColumns: COL_TEMPLATE,
+              background: 'rgba(66,44,118,0.04)',
+              borderBottom: '1px solid rgba(66,44,118,0.1)',
+            }}
           >
-            <div className="px-4 py-3">Cliente</div>
-            <div className="px-2 py-3 text-center">BU</div>
+            <div className="px-4 py-3" style={{ color: '#422c76' }}>Cliente</div>
+            <div className="px-2 py-3 text-center" style={{ color: '#9a8fb5' }}>BU</div>
             {MONTHS.map((mo, i) => (
               <div
                 key={mo}
-                className={cn(
-                  'px-2 py-3 text-center',
-                  i + 1 === CURRENT_MONTH && 'text-violet-400'
-                )}
+                className="px-2 py-3 text-center"
+                style={{ color: i + 1 === CURRENT_MONTH ? '#422c76' : '#9a8fb5' }}
               >
                 {mo}
+                {i + 1 === CURRENT_MONTH && (
+                  <div
+                    className="w-1 h-1 rounded-full mx-auto mt-0.5"
+                    style={{ background: '#422c76' }}
+                  />
+                )}
               </div>
             ))}
-            <div className="px-2 py-3 text-right">Total</div>
-            <div className="px-2 py-3 text-center">Ação</div>
+            <div className="px-2 py-3 text-right" style={{ color: '#9a8fb5' }}>Total</div>
+            <div className="px-2 py-3 text-center" style={{ color: '#9a8fb5' }}>Ação</div>
           </div>
 
-          {/* ── Linhas de clientes ── */}
+          {/* Client rows */}
           {clients.map((client, idx) => {
             const dirty   = isDirty(client.id)
             const total   = rowTotal(client.id)
@@ -180,41 +197,69 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
             return (
               <div
                 key={client.id}
-                className={cn(
-                  'grid items-center border-t border-white/5 transition-colors duration-150',
-                  idx % 2 === 0 ? 'bg-zinc-900/30' : 'bg-zinc-900/10',
-                  dirty && 'bg-amber-950/20'
-                )}
-                style={{ gridTemplateColumns: '1fr 80px repeat(12, minmax(90px,1fr)) 110px 80px' }}
+                className="grid items-center transition-colors duration-150"
+                style={{
+                  gridTemplateColumns: COL_TEMPLATE,
+                  borderBottom: '1px solid rgba(66,44,118,0.06)',
+                  background: dirty
+                    ? 'rgba(251,191,36,0.04)'
+                    : idx % 2 === 0
+                    ? '#ffffff'
+                    : 'rgba(66,44,118,0.018)',
+                }}
               >
                 {/* Nome */}
-                <div className="px-4 py-2.5 flex items-center gap-2 min-w-0">
-                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-violet-600/20 border border-violet-600/30 flex items-center justify-center">
-                    <Building2 className="w-3.5 h-3.5 text-violet-400" />
+                <div className="px-4 py-2.5 flex items-center gap-2.5 min-w-0">
+                  <div
+                    className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(66,44,118,0.08)' }}
+                  >
+                    <Building2 className="w-3.5 h-3.5" style={{ color: '#422c76' }} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-100 truncate">
+                    <p className="text-sm font-semibold truncate" style={{ color: '#414042' }}>
                       {client.nameReduced}
                     </p>
                     {client.accountManager && (
-                      <p className="text-xs text-zinc-500 truncate">{client.accountManager}</p>
+                      <p className="text-xs truncate" style={{ color: '#9a8fb5' }}>
+                        {client.accountManager}
+                      </p>
                     )}
                   </div>
                 </div>
 
                 {/* BU */}
                 <div className="px-2 py-2.5 text-center">
-                  <span className="text-xs text-violet-400 font-medium bg-violet-500/10 px-1.5 py-0.5 rounded">
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(66,44,118,0.08)', color: '#422c76' }}
+                  >
                     {client.entity ?? '—'}
                   </span>
                 </div>
 
-                {/* Células de mês */}
+                {/* Month cells */}
                 {Array.from({ length: 12 }, (_, i) => {
-                  const m    = i + 1
-                  const cell = grid[client.id]?.[m]
+                  const m         = i + 1
+                  const cell      = grid[client.id]?.[m]
                   const isCurrent = m === CURRENT_MONTH
-                  const isPast    = m < CURRENT_MONTH
+
+                  const borderColor =
+                    cell?.dirty ? 'rgba(245,158,11,0.6)' :
+                    cell?.saved ? 'rgba(1,193,122,0.5)'  :
+                    isCurrent   ? 'rgba(66,44,118,0.28)' :
+                                  'rgba(66,44,118,0.1)'
+
+                  const bgColor =
+                    cell?.dirty ? 'rgba(251,191,36,0.08)' :
+                    cell?.saved ? 'rgba(1,225,142,0.08)'  :
+                    isCurrent   ? 'rgba(66,44,118,0.04)'  :
+                                  'transparent'
+
+                  const textColor =
+                    cell?.dirty ? '#92400e' :
+                    cell?.saved ? '#065f46' :
+                                  '#414042'
 
                   return (
                     <div key={m} className="px-1 py-1.5">
@@ -222,49 +267,53 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
                         type="text"
                         value={cell?.value ?? ''}
                         onChange={e => handleChange(client.id, m, e.target.value)}
-                        placeholder={isPast || isCurrent ? '0,000' : '—'}
-                        className={cn(
-                          'w-full text-right text-xs px-2 py-1.5 rounded-md outline-none transition-all duration-150',
-                          'bg-transparent border',
-                          'placeholder:text-zinc-700',
-                          // Célula normal
-                          !cell?.dirty && !cell?.saved && 'border-white/10 text-zinc-300 focus:border-violet-500/60 focus:bg-violet-950/20',
-                          // Editada (não salva)
-                          cell?.dirty && 'border-amber-500/50 text-amber-200 bg-amber-950/20',
-                          // Salva
-                          cell?.saved && 'border-emerald-500/30 text-emerald-300 bg-emerald-950/10',
-                          // Mês atual
-                          isCurrent && !cell?.dirty && !cell?.saved && 'border-violet-500/30 bg-violet-950/10',
-                        )}
+                        placeholder=""
+                        className="w-full text-right text-xs px-2 py-1.5 rounded-lg font-medium transition-all duration-150"
+                        style={{
+                          border: `1px solid ${borderColor}`,
+                          background: bgColor,
+                          color: textColor,
+                          outline: 'none',
+                        }}
+                        onFocus={e => {
+                          e.currentTarget.style.boxShadow = '0 0 0 2px rgba(66,44,118,0.15)'
+                        }}
+                        onBlur={e => {
+                          e.currentTarget.style.boxShadow = 'none'
+                        }}
                       />
                     </div>
                   )
                 })}
 
-                {/* Total da linha */}
+                {/* Row total */}
                 <div className="px-2 py-2.5 text-right">
-                  <span className={cn(
-                    'text-sm font-medium',
-                    total > 0 ? 'text-zinc-100' : 'text-zinc-600'
-                  )}>
-                    {total > 0 ? fmtCurrency(total) : '—'}
+                  <span
+                    className="text-sm font-semibold"
+                    style={{ color: total > 0 ? '#414042' : '#d4cfe3' }}
+                  >
+                    {fmtCurrency(total)}
                   </span>
                 </div>
 
-                {/* Botão salvar */}
+                {/* Save button */}
                 <div className="px-2 py-2.5 flex justify-center">
                   <button
                     onClick={() => saveRow(client.id)}
                     disabled={!dirty || loading}
-                    className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150',
-                      dirty && !loading
-                        ? 'bg-violet-600 hover:bg-violet-500 text-white cursor-pointer shadow-lg shadow-violet-900/40'
-                        : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                    )}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
+                    style={{
+                      background:  dirty && !loading ? '#422c76' : 'rgba(66,44,118,0.06)',
+                      color:       dirty && !loading ? '#ffffff'  : '#c4bdd9',
+                      cursor:      dirty && !loading ? 'pointer'  : 'not-allowed',
+                      boxShadow:   dirty && !loading ? '0 2px 8px rgba(66,44,118,0.28)' : 'none',
+                    }}
                   >
                     {loading ? (
-                      <span className="animate-spin rounded-full h-3 w-3 border border-zinc-400 border-t-transparent" />
+                      <span
+                        className="h-3 w-3 rounded-full border-2 animate-spin"
+                        style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }}
+                      />
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
@@ -275,53 +324,74 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
             )
           })}
 
-          {/* ── Linha de totais ── */}
+          {/* Totals row */}
           <div
-            className="grid items-center border-t border-violet-500/20 bg-zinc-900/70"
-            style={{ gridTemplateColumns: '1fr 80px repeat(12, minmax(90px,1fr)) 110px 80px' }}
+            className="grid items-center"
+            style={{
+              gridTemplateColumns: COL_TEMPLATE,
+              background: 'rgba(66,44,118,0.04)',
+              borderTop: '2px solid rgba(66,44,118,0.14)',
+            }}
           >
-            <div className="px-4 py-3 text-xs font-bold text-zinc-300 uppercase tracking-wider">
+            <div
+              className="px-4 py-3 text-xs font-bold uppercase tracking-wider"
+              style={{ color: '#422c76' }}
+            >
               Total
             </div>
             <div />
             {colTotals.map((v, i) => (
-              <div key={i} className={cn('px-2 py-3 text-right text-xs font-semibold', i + 1 === CURRENT_MONTH ? 'text-violet-300' : 'text-zinc-300')}>
-                {v > 0 ? fmtCurrency(v) : '—'}
+              <div
+                key={i}
+                className="px-2 py-3 text-right text-xs font-semibold"
+                style={{ color: i + 1 === CURRENT_MONTH ? '#422c76' : '#6b6570' }}
+              >
+                {fmtCurrency(v)}
               </div>
             ))}
-            <div className="px-2 py-3 text-right text-sm font-bold text-white">
+            <div className="px-2 py-3 text-right text-sm font-bold" style={{ color: '#422c76' }}>
               {fmtCurrency(grandTotal)}
             </div>
             <div />
           </div>
-        </div>
 
-        {/* ── Nota de rodapé ── */}
-        <p className="mt-3 text-xs text-zinc-600 px-1">
-          Valores em R$ — insira números como <span className="text-zinc-500">1.250.000</span> ou <span className="text-zinc-500">1,25M</span>.
-          Clique em <strong className="text-zinc-500">Salvar</strong> para confirmar linha por linha.
-        </p>
+        </div>
       </div>
+
+      <p className="mt-3 text-xs px-0.5" style={{ color: '#9a8fb5' }}>
+        Use{' '}
+        <strong style={{ color: '#6b6570' }}>1,25M</strong> → R$ 1.250.000 &nbsp;|&nbsp;{' '}
+        <strong style={{ color: '#6b6570' }}>750K</strong> → R$ 750.000 &nbsp;|&nbsp;{' '}
+        Números sem sufixo são tratados como R$ exatos.
+      </p>
     </div>
   )
 }
 
-// ── Painel de gerenciamento de clientes manuais ────────────────────────────────
-
 export function ManualClientsInfo({ clients }: { clients: ManualClient[] }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+    <div className="flex flex-wrap gap-2">
       {clients.map(c => (
         <div
           key={c.id}
-          className="rounded-lg border border-white/10 bg-zinc-900/40 px-3 py-2.5 flex items-center gap-2"
+          className="flex items-center gap-2 rounded-lg px-3 py-2"
+          style={{
+            background: '#fff',
+            border: '1px solid rgba(66,44,118,0.1)',
+            boxShadow: '0 1px 4px rgba(66,44,118,0.06)',
+          }}
         >
-          <div className="w-8 h-8 rounded-full bg-violet-600/20 border border-violet-600/30 flex items-center justify-center flex-shrink-0">
-            <PencilLine className="w-3.5 h-3.5 text-violet-400" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-zinc-200 truncate">{c.nameReduced}</p>
-            <p className="text-xs text-violet-400">{c.entity}</p>
+          <div
+            className="w-1.5 h-5 rounded-full flex-shrink-0"
+            style={{ background: '#422c76' }}
+          />
+          <div>
+            <p className="text-xs font-semibold leading-tight" style={{ color: '#414042' }}>
+              {c.nameReduced}
+            </p>
+            <p className="text-[10px] leading-tight" style={{ color: '#9a8fb5' }}>
+              {c.entity}
+            </p>
           </div>
         </div>
       ))}
