@@ -115,23 +115,24 @@ type ExpCol = {
   lockable?: boolean
 }
 
-// Colunas quando MÊS EXPANDIDO (12 colunas):
+// Colunas fixas quando MÊS EXPANDIDO (11 colunas, sem COMENTÁRIO):
 const EXP_COLS: ExpCol[] = [
   { key: 'plan',          label: 'PLANO',       w: 72,  align: 'right' },
   { key: 'fc',            label: 'FORECAST',    w: 72,  align: 'right', editable: true, lockable: true },
   { key: 'orders',        label: 'PEDIDO',      w: 68,  align: 'right', editable: true, lockable: true },
   { key: 'withoutOrders', label: 'S/PEDIDO',    w: 68,  align: 'right' },
   { key: 'faturado',      label: 'FATURADO',    w: 72,  align: 'right' },
+  { key: 'refExternal',   label: 'REF.EXTERNA', w: 80,  align: 'right' },
   { key: 'desvioPlano',   label: 'DESV.PLANO',  w: 72,  align: 'right' },
   { key: 'aFaturar',      label: 'A FATURAR',   w: 72,  align: 'right' },
-  { key: 'lastWeek',      label: 'ÚLT.SEM.',    w: 68,  align: 'right', editable: true },
   { key: 'mbPlan',        label: 'MB PLAN',     w: 68,  align: 'right', editable: true },
   { key: 'mbFc',          label: 'MB FC',       w: 68,  align: 'right' },
-  { key: 'refExternal',   label: 'REF.EXTERNA', w: 80,  align: 'right' },
-  { key: 'weekComment',   label: 'COMENTÁRIO',  w: 140, align: 'left',  editable: true },
+  { key: 'lastWeek',      label: 'ÚLT.SEM.',    w: 68,  align: 'right', editable: true },
 ]
+// COMENTÁRIO fica sempre após as colunas de semana (W24, W25…)
+const COMMENT_COL: ExpCol = { key: 'weekComment', label: 'COMENTÁRIO', w: 140, align: 'left', editable: true }
 
-const EXP_W_TOTAL = EXP_COLS.reduce((s, c) => s + c.w, 0)  // 920px
+const EXP_W_TOTAL = EXP_COLS.reduce((s, c) => s + c.w, 0) + COMMENT_COL.w  // 920px
 const COL_W  = 130 // collapsed: PLANO + FC
 const COL_W2 = 65  // each collapsed sub-col
 const STICKY_W = 272
@@ -643,6 +644,7 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                 ? [
                     ...EXP_COLS.map((c, i) => <col key={`${m}-${i}`} style={{ width: `${c.w}px` }} />),
                     ...snapshotWeeks.map((_, wi) => <col key={`${m}-snap-${wi}`} style={{ width: `${SNAP_COL_W}px` }} />),
+                    <col key={`${m}-cmt`} style={{ width: `${COMMENT_COL.w}px` }} />,
                   ]
                 : [<col key={m} style={{ width: `${COL_W2}px` }} />,
                    <col key={`${m}b`} style={{ width: `${COL_W2}px` }} />]
@@ -663,7 +665,7 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
               {MONTHS.flatMap(m => {
                 const isExp  = expandedMonths.has(m)
                 const isCurr = m === currentMonth
-                const span   = isExp ? EXP_COLS.length + snapshotWeeks.length : 2
+                const span   = isExp ? EXP_COLS.length + snapshotWeeks.length + 1 : 2
                 return [
                   <th
                     key={m}
@@ -732,6 +734,13 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                         W{wk.isoWeek}
                       </th>
                     )),
+                    <th
+                      key={`${m}-cmt`}
+                      className="py-1.5 px-1.5 text-[9px] font-bold text-left uppercase tracking-wide"
+                      style={{ color: LILAS, fontWeight: 800 }}
+                    >
+                      {COMMENT_COL.label}
+                    </th>,
                   ]
                 }
                 return [
@@ -818,7 +827,6 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                             case 'mbPlan':        val = t.mbPlan;        break
                             case 'mbFc':          val = t.mbFc;          break
                             case 'refExternal':   val = t.refExternal;   color = '#00b870'; break
-                            case 'weekComment':   return <td key={`${m}-${i}`} style={{ borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.08)' : undefined }} />
                           }
                           return (
                             <td
@@ -844,7 +852,8 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                             </td>
                           )
                         })
-                        return [...expCells, ...snapGrp]
+                        const cmtGrp = <td key={`${m}-grpcmt`} className="px-1.5 py-2 text-left text-xs" />
+                        return [...expCells, ...snapGrp, cmtGrp]
                       }
                       // Collapsed: PLANO + FATURADO (passado) ou PLANO + FC (futuro)
                       const collVal = m <= currentMonth ? t.faturado : t.fc
@@ -1022,16 +1031,6 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                               </span>
                             )
                           }
-                          case 'weekComment':
-                            return (
-                              <td key={`${m}-${i}`} className="px-1.5 py-1 text-left" style={bdr}>
-                                <CommentCell
-                                  value={comment}
-                                  onSave={v => saveComment(c.id, m, v)}
-                                  isCurrent={isCurr}
-                                />
-                              </td>
-                            )
                           default:
                             return makeTd(null)
                         }
@@ -1053,7 +1052,16 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                           </td>
                         )
                       })
-                      return [...expCells, ...snapCells]
+                      const cmtCell = (
+                        <td key={`${m}-cmt`} className="px-1.5 py-1 text-left">
+                          <CommentCell
+                            value={comment}
+                            onSave={v => saveComment(c.id, m, v)}
+                            isCurrent={isCurr}
+                          />
+                        </td>
+                      )
+                      return [...expCells, ...snapCells, cmtCell]
                     }
 
                     // Collapsed: PLANO + FATURADO (passado/atual) ou PLANO + FC (futuro)
@@ -1124,7 +1132,8 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                       </td>
                     )
                   })
-                  return [...ftCells, ...ftSnap]
+                  const ftCmt = <td key={`${m}-ftcmt`} />
+                  return [...ftCells, ...ftSnap, ftCmt]
                 }
                 return [
                   <td key={`${m}a`} className="px-1.5 py-2.5 text-right font-bold text-white text-[11px] tabular-nums border-l" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>{fmt(t.plan)}</td>,
