@@ -59,6 +59,7 @@ model Client {
   actualsWeekly     ActualWeekly[]
   comments          WeekComment[]
   forecastRevisions ForecastRevision[]
+  weeklySnapshots   WeeklyForecastSnapshot[]
 }
 
 model BudgetEntry {
@@ -190,4 +191,19 @@ model SyncJob {
   startedAt      DateTime  @default(now())
   finishedAt     DateTime?
   triggeredBy    String?
+}
+
+model WeeklyForecastSnapshot {
+  id        String   @id @default(cuid())
+  clientId  String
+  year      Int
+  month     Int
+  isoYear   Int
+  isoWeek   Int
+  fcValue   Float?
+  createdAt DateTime @default(now())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, isoYear, isoWeek, month])
+  @@index([year, isoYear, isoWeek])
 }

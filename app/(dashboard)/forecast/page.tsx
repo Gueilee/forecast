@@ -1,8 +1,11 @@
 import { db } from '@/lib/db'
 import { Header } from '@/components/layout/Header'
-import { ForecastMatrix, ClientData } from '@/components/forecast/ForecastMatrix'
+import { ForecastMatrix, ClientData, WeekSnapshotEntry } from '@/components/forecast/ForecastMatrix'
+import { getLastClosedWindow } from '@/lib/forecast-window'
+import { randomUUID } from 'crypto'
 
 const YEAR = 2026
+const createId = () => randomUUID().replace(/-/g, '').substring(0, 25)
 
 async function getMatrixData(): Promise<ClientData[]> {
   const [clients, budgetEntries, weeklyActuals, comments, refExternals] = await Promise.all([
@@ -31,7 +34,7 @@ async function getMatrixData(): Promise<ClientData[]> {
         orders: true,
         withoutOrders: true,
         lastWeek: true,
-        faturado: true,   // histórico do Excel (fallback quando Conexos ainda não sincronizou)
+        faturado: true,
         mbPlanPct: true,
         mbFcPct: true,
       },
@@ -56,28 +59,23 @@ async function getMatrixData(): Promise<ClientData[]> {
     }),
   ])
 
-  // Faturado do Conexos (ActualWeekly) — mantido para referência mas não mais
-  // sobrepõe BudgetEntry.faturado. BudgetEntry é a fonte única de faturado.
   const fatMap = new Map<string, number>()
   for (const w of weeklyActuals) {
     const k = `${w.clientId}:${w.month}`
     fatMap.set(k, (fatMap.get(k) ?? 0) + w.totFaturado)
   }
 
-  // Budget entries por clientId:month
   const budgetMap = new Map<string, typeof budgetEntries[0]>()
   for (const b of budgetEntries) {
     budgetMap.set(`${b.clientId}:${b.month}`, b)
   }
 
-  // Comentários por clientId:month (mais recente por ordering)
   const commentMap = new Map<string, string>()
   for (const c of comments) {
     const k = `${c.clientId}:${c.month}`
     if (!commentMap.has(k)) commentMap.set(k, c.comment)
   }
 
-  // Referência externa: COUNT DISTINCT refCliente (saída) por cliente/mês
   const refExtSets = new Map<string, Set<string>>()
   for (const r of refExternals) {
     const k = `${r.clientId}:${r.month}`
@@ -92,10 +90,6 @@ async function getMatrixData(): Promise<ClientData[]> {
 
     for (let m = 1; m <= 12; m++) {
       const b    = budgetMap.get(`${c.id}:${m}`)
-      const cnxs = fatMap.get(`${c.id}:${m}`) ?? 0
-
-      // Faturado: BudgetEntry.faturado é a fonte única de verdade.
-      // ActualWeekly (cnxs) é preservado no DB para auditoria mas não sobrepõe o Excel.
       const faturado = b?.faturado ?? 0
 
       months[m] = {
@@ -127,8 +121,58 @@ async function getMatrixData(): Promise<ClientData[]> {
   })
 }
 
+async function getWeeklySnapshots(year: number): Promise<WeekSnapshotEntry[]> {
+  return db.weeklyForecastSnapshot.findMany({
+    where: { year },
+    select: { clientId: true, month: true, isoYear: true, isoWeek: true, fcValue: true },
+    orderBy: [{ isoYear: 'desc' }, { isoWeek: 'desc' }],
+  })
+}
+
+/**
+ * Cria o snapshot da semana mais recentemente fechada, se ainda não existir.
+ * Captura o fcMonth de todos os clientes/meses no momento do lock.
+ */
+async function maybeCreateSnapshot(year: number) {
+  const lastClosed = getLastClosedWindow()
+
+  const existing = await db.weeklyForecastSnapshot.findFirst({
+    where: { year, isoYear: lastClosed.isoYear, isoWeek: lastClosed.isoWeek },
+    select: { id: true },
+  })
+  if (existing) return
+
+  const budgets = await db.budgetEntry.findMany({
+    where: { year },
+    select: { clientId: true, month: true, fcMonth: true },
+  })
+
+  if (budgets.length === 0) return
+
+  // Insere em lotes de 100 para não sobrecarregar o driver libSQL
+  const rows = budgets.map(b => ({
+    id:       createId(),
+    clientId: b.clientId,
+    year,
+    month:    b.month,
+    isoYear:  lastClosed.isoYear,
+    isoWeek:  lastClosed.isoWeek,
+    fcValue:  b.fcMonth ?? null,
+  }))
+  for (let i = 0; i < rows.length; i += 100) {
+    await db.weeklyForecastSnapshot.createMany({ data: rows.slice(i, i + 100) })
+  }
+}
+
 export default async function ForecastPage() {
-  const clients      = await getMatrixData()
+  // Cria snapshot da semana fechada se ainda não existir (lazy, no page load)
+  await maybeCreateSnapshot(YEAR)
+
+  const [clients, weeklySnapshots] = await Promise.all([
+    getMatrixData(),
+    getWeeklySnapshots(YEAR),
+  ])
+
   const currentMonth = new Date().getMonth() + 1
 
   return (
@@ -137,7 +181,12 @@ export default async function ForecastPage() {
         title="Forecast Matrix"
         subtitle={`Plano Orçamentário ${YEAR} · ${clients.length} clientes`}
       />
-      <ForecastMatrix clients={clients} year={YEAR} currentMonth={currentMonth} />
+      <ForecastMatrix
+        clients={clients}
+        year={YEAR}
+        currentMonth={currentMonth}
+        weeklySnapshots={weeklySnapshots}
+      />
     </div>
   )
 }

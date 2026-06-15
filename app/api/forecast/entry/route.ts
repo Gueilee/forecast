@@ -2,18 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { isFcLocked } from '@/lib/forecast-window'
 
 const EDITABLE_FIELDS = new Set(['fcMonth', 'orders', 'lastWeek', 'mbPlanPct', 'mbFcPct'])
-
-// FC e PEDIDO ficam bloqueados após quinta-feira às 22h até próxima segunda
-function isFcLocked(): boolean {
-  const now = new Date()
-  const day = now.getDay() // 0=Dom, 1=Seg, ..., 4=Qui, 5=Sex, 6=Sáb
-  const hour = now.getHours()
-  if (day === 4 && hour >= 22) return true
-  if (day === 5 || day === 6 || day === 0) return true
-  return false
-}
 
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)

@@ -31,6 +31,14 @@ export type ClientData = {
   months:         Record<number, MonthEntry>
 }
 
+export type WeekSnapshotEntry = {
+  clientId: string
+  month:    number
+  isoYear:  number
+  isoWeek:  number
+  fcValue:  number | null
+}
+
 type MonthTotals = {
   plan: number; fc: number; faturado: number
   lastWeek: number; mbPlan: number; mbFc: number; refExternal: number
@@ -59,9 +67,10 @@ type ClientNode = {
 type TreeNode = GroupNode | ClientNode
 
 export type ForecastMatrixProps = {
-  clients:      ClientData[]
-  year:         number
-  currentMonth: number
+  clients:          ClientData[]
+  year:             number
+  currentMonth:     number
+  weeklySnapshots?: WeekSnapshotEntry[]
 }
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -161,11 +170,13 @@ function groupBy<T>(arr: T[], fn: (item: T) => string): Record<string, T[]> {
 }
 
 function isFcLocked(): boolean {
-  const now = new Date()
-  const day = now.getDay()
-  const hour = now.getHours()
-  if (day === 4 && hour >= 22) return true
-  if (day === 5 || day === 6 || day === 0) return true
+  // Converte para horário de Brasília (UTC-3)
+  const brt  = new Date(new Date().getTime() - 3 * 60 * 60 * 1000)
+  const day  = brt.getUTCDay()
+  const hour = brt.getUTCHours()
+  if (day === 1 && hour < 8)  return true  // Segunda antes das 08h
+  if (day === 4 && hour >= 22) return true // Quinta a partir das 22h
+  if (day === 5 || day === 6 || day === 0) return true // Sex / Sáb / Dom
   return false
 }
 
@@ -340,7 +351,7 @@ function CommentCell({
 
 // ── Componente Principal ──────────────────────────────────────────────────────
 
-export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixProps) {
+export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }: ForecastMatrixProps) {
   const fcLocked = isFcLocked()
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
@@ -398,6 +409,44 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
     const filtered = clients.filter(c => filteredIds.has(c.id))
     return sumTotals(filtered)
   }, [clients, filteredIds])
+
+  // Semanas disponíveis nos snapshots, ordenadas da mais recente para a mais antiga
+  const snapshotWeeks = useMemo(() => {
+    if (!weeklySnapshots?.length) return [] as { isoYear: number; isoWeek: number }[]
+    const seen = new Set<string>()
+    const result: { isoYear: number; isoWeek: number }[] = []
+    for (const s of weeklySnapshots) {
+      const k = `${s.isoYear}-${s.isoWeek}`
+      if (!seen.has(k)) { seen.add(k); result.push({ isoYear: s.isoYear, isoWeek: s.isoWeek }) }
+    }
+    return result.sort((a, b) =>
+      b.isoYear !== a.isoYear ? b.isoYear - a.isoYear : b.isoWeek - a.isoWeek
+    )
+  }, [weeklySnapshots])
+
+  // Lookup: clientId → month → isoWeek → fcValue
+  const snapshotMap = useMemo(() => {
+    const map = new Map<string, Map<number, Map<number, number | null>>>()
+    for (const s of (weeklySnapshots ?? [])) {
+      if (!map.has(s.clientId)) map.set(s.clientId, new Map())
+      const byMonth = map.get(s.clientId)!
+      if (!byMonth.has(s.month)) byMonth.set(s.month, new Map())
+      byMonth.get(s.month)!.set(s.isoWeek, s.fcValue)
+    }
+    return map
+  }, [weeklySnapshots])
+
+  // Totais de snapshot por (isoWeek × month) para a linha de rodapé
+  const snapshotTotals = useMemo(() => {
+    const map = new Map<number, Map<number, number>>()
+    for (const s of (weeklySnapshots ?? [])) {
+      if (!filteredIds.has(s.clientId)) continue
+      if (!map.has(s.isoWeek)) map.set(s.isoWeek, new Map())
+      const byMonth = map.get(s.isoWeek)!
+      byMonth.set(s.month, (byMonth.get(s.month) ?? 0) + (s.fcValue ?? 0))
+    }
+    return map
+  }, [weeklySnapshots, filteredIds])
 
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups(prev => {
@@ -457,9 +506,10 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
     }
   }
 
-  // Compute min-width
+  // Compute min-width (snapshot cols = 68px cada)
+  const SNAP_COL_W = 68
   const tableMinWidth = STICKY_W + MONTHS.reduce((s, m) =>
-    s + (expandedMonths.has(m) ? EXP_W_TOTAL : COL_W), 0
+    s + (expandedMonths.has(m) ? EXP_W_TOTAL + snapshotWeeks.length * SNAP_COL_W : COL_W), 0
   ) + 88  // anual
 
   // Options for filter dropdowns
@@ -541,9 +591,13 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
         )}
 
         <div className="ml-auto flex items-center gap-3 text-xs" style={{ color: '#9a8fb5' }}>
-          {fcLocked && (
-            <span className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: '#d97706' }}>
-              <Lock className="w-3 h-3" /> FC bloqueado até segunda
+          {fcLocked ? (
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg" style={{ color: '#d97706', background: 'rgba(217,119,6,0.08)' }}>
+              <Lock className="w-3 h-3" /> Janela fechada — abre seg 08h
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg" style={{ color: '#00b870', background: 'rgba(0,184,112,0.08)' }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00b870] inline-block" /> Janela aberta — fecha qui 22h
             </span>
           )}
           <span className="tabular-nums">
@@ -562,7 +616,10 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
             <col style={{ width: `${STICKY_W}px`, minWidth: `${STICKY_W}px` }} />
             {MONTHS.flatMap(m =>
               expandedMonths.has(m)
-                ? EXP_COLS.map((c, i) => <col key={`${m}-${i}`} style={{ width: `${c.w}px` }} />)
+                ? [
+                    ...EXP_COLS.map((c, i) => <col key={`${m}-${i}`} style={{ width: `${c.w}px` }} />),
+                    ...snapshotWeeks.map((_, wi) => <col key={`${m}-snap-${wi}`} style={{ width: `${SNAP_COL_W}px` }} />),
+                  ]
                 : [<col key={m} style={{ width: `${COL_W2}px` }} />,
                    <col key={`${m}b`} style={{ width: `${COL_W2}px` }} />]
             )}
@@ -582,7 +639,7 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
               {MONTHS.flatMap(m => {
                 const isExp  = expandedMonths.has(m)
                 const isCurr = m === currentMonth
-                const span   = isExp ? EXP_COLS.length : 2
+                const span   = isExp ? EXP_COLS.length + snapshotWeeks.length : 2
                 return [
                   <th
                     key={m}
@@ -624,19 +681,34 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
               </th>
               {MONTHS.flatMap(m => {
                 if (expandedMonths.has(m)) {
-                  return EXP_COLS.map((col, i) => (
-                    <th
-                      key={`${m}-${i}`}
-                      className={`py-1.5 px-1.5 text-[9px] font-bold uppercase tracking-wide ${col.align === 'right' ? 'text-right' : 'text-left'}`}
-                      style={{
-                        color: col.editable ? LILAS : '#9a8fb5',
-                        borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.12)' : undefined,
-                        fontWeight: col.editable ? 800 : 600,
-                      }}
-                    >
-                      {col.label}
-                    </th>
-                  ))
+                  return [
+                    ...EXP_COLS.map((col, i) => (
+                      <th
+                        key={`${m}-${i}`}
+                        className={`py-1.5 px-1.5 text-[9px] font-bold uppercase tracking-wide ${col.align === 'right' ? 'text-right' : 'text-left'}`}
+                        style={{
+                          color: col.editable ? LILAS : '#9a8fb5',
+                          borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.12)' : undefined,
+                          fontWeight: col.editable ? 800 : 600,
+                        }}
+                      >
+                        {col.label}
+                      </th>
+                    )),
+                    ...snapshotWeeks.map((wk, wi) => (
+                      <th
+                        key={`${m}-snap-${wi}`}
+                        className="py-1.5 px-1.5 text-[9px] font-bold text-right uppercase tracking-wide"
+                        style={{
+                          color: '#7c5cbf',
+                          borderLeft: wi === 0 ? '2px dashed rgba(66,44,118,0.2)' : undefined,
+                          background: 'rgba(66,44,118,0.03)',
+                        }}
+                      >
+                        W{wk.isoWeek}
+                      </th>
+                    )),
+                  ]
                 }
                 return [
                   <th key={`${m}a`} className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.1)' }}>Plano</th>,
@@ -707,7 +779,7 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                       const fatPct = desvPct(t.plan, t.faturado)
 
                       if (expandedMonths.has(m)) {
-                        return EXP_COLS.map((col, i) => {
+                        const expCells = EXP_COLS.map((col, i) => {
                           let val: number | string | null = null
                           let color = '#9a8fb5'
                           switch (col.key) {
@@ -734,6 +806,12 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                             </td>
                           )
                         })
+                        const snapGrp = snapshotWeeks.map((_, wi) => (
+                          <td key={`${m}-grpsnap-${wi}`}
+                              className="px-1.5 py-2 text-right text-xs tabular-nums"
+                              style={{ borderLeft: wi === 0 ? '2px dashed rgba(66,44,118,0.12)' : undefined, background: 'rgba(66,44,118,0.02)' }} />
+                        ))
+                        return [...expCells, ...snapGrp]
                       }
                       // Collapsed: PLANO + FATURADO (passado) ou PLANO + FC (futuro)
                       const collVal = m <= currentMonth ? t.faturado : t.fc
@@ -815,7 +893,7 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                     const aFaturar = fc - faturado
 
                     if (expandedMonths.has(m)) {
-                      return EXP_COLS.map((col, i) => {
+                      const expCells = EXP_COLS.map((col, i) => {
                         const bdr = i === 0 ? { borderLeft: '1px solid rgba(66,44,118,0.08)' } : {}
 
                         const makeTd = (content: ReactNode, extra?: CSSProperties) => (
@@ -925,6 +1003,24 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                             return makeTd(null)
                         }
                       })
+                      const snapCells = snapshotWeeks.map((wk, wi) => {
+                        const fcSnap = snapshotMap.get(c.id)?.get(m)?.get(wk.isoWeek) ?? null
+                        return (
+                          <td
+                            key={`${m}-snap-${wi}`}
+                            className="px-1.5 py-1 text-right text-[11px] tabular-nums"
+                            style={{
+                              borderLeft: wi === 0 ? '2px dashed rgba(66,44,118,0.2)' : undefined,
+                              background: 'rgba(66,44,118,0.025)',
+                              color: fcSnap != null && fcSnap !== 0 ? '#7c5cbf' : 'rgba(65,64,66,0.15)',
+                              fontWeight: fcSnap != null && fcSnap !== 0 ? 500 : 400,
+                            }}
+                          >
+                            {fcSnap != null && fcSnap !== 0 ? fmt(fcSnap) : '—'}
+                          </td>
+                        )
+                      })
+                      return [...expCells, ...snapCells]
                     }
 
                     // Collapsed: PLANO + FATURADO (passado/atual) ou PLANO + FC (futuro)
@@ -966,7 +1062,7 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                 const hasFat = t.faturado > 0
 
                 if (expandedMonths.has(m)) {
-                  return EXP_COLS.map((col, i) => {
+                  const ftCells = EXP_COLS.map((col, i) => {
                     const bdr = i === 0 ? { borderLeft: '1px solid rgba(255,255,255,0.1)' } : {}
                     switch (col.key) {
                       case 'plan':         return <td key={`${m}-${i}`} className="px-1.5 py-2.5 text-right font-bold text-[11px] text-white tabular-nums" style={bdr}>{fmt(t.plan)}</td>
@@ -979,6 +1075,23 @@ export function ForecastMatrix({ clients, year, currentMonth }: ForecastMatrixPr
                       default:             return <td key={`${m}-${i}`} style={bdr} />
                     }
                   })
+                  const ftSnap = snapshotWeeks.map((wk, wi) => {
+                    const total = snapshotTotals.get(wk.isoWeek)?.get(m) ?? 0
+                    return (
+                      <td
+                        key={`${m}-ftsnap-${wi}`}
+                        className="px-1.5 py-2.5 text-right font-semibold text-[11px] tabular-nums"
+                        style={{
+                          borderLeft: wi === 0 ? '2px dashed rgba(255,255,255,0.15)' : undefined,
+                          color: total > 0 ? 'rgba(200,180,255,0.85)' : 'rgba(255,255,255,0.2)',
+                          background: 'rgba(0,0,0,0.06)',
+                        }}
+                      >
+                        {total > 0 ? fmt(total) : '—'}
+                      </td>
+                    )
+                  })
+                  return [...ftCells, ...ftSnap]
                 }
                 return [
                   <td key={`${m}a`} className="px-1.5 py-2.5 text-right font-bold text-white text-[11px] tabular-nums border-l" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>{fmt(t.plan)}</td>,
