@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, ComposedChart,
+  ResponsiveContainer, Legend, ComposedChart, LabelList,
 } from 'recharts'
 import { Loader2 } from 'lucide-react'
 import { formatMillions } from '@/lib/utils'
@@ -25,6 +25,9 @@ export interface DashboardFilters {
 
 const VERDE   = '#01E18E'
 const MAGENTA = '#ff2f69'
+const LILAS   = '#422c76'
+
+const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
 function DailyTooltip({ active, payload, label }: {
   active?: boolean
@@ -51,12 +54,38 @@ function DailyTooltip({ active, payload, label }: {
   )
 }
 
+// Rótulo customizado para barras de faturado — exibe apenas valores > 0
+function FatLabel(props: Record<string, unknown>) {
+  const { x, y, width, value } = props as { x: number; y: number; width: number; value: number }
+  if (!value || value === 0) return null
+  const formatted = value >= 1e6
+    ? `${(value / 1e6).toFixed(1)}M`
+    : value >= 1e3
+    ? `${Math.round(value / 1e3)}K`
+    : String(Math.round(value))
+  return (
+    <text
+      x={Number(x) + Number(width) / 2}
+      y={Number(y) - 3}
+      textAnchor="middle"
+      fontSize={8.5}
+      fontWeight={600}
+      fill="#01a86a"
+    >
+      {formatted}
+    </text>
+  )
+}
+
 export function DailyChart({ filters, month }: { filters: DashboardFilters; month: number }) {
-  const [data, setData]       = useState<DayData[]>([])
-  const [loading, setLoading] = useState(true)
+  const [data, setData]             = useState<DayData[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [selectedMonth, setSelected] = useState(month)
+
+  const currentMonthNum = new Date().getMonth() + 1
 
   const fetchData = useCallback(async () => {
-    const params = new URLSearchParams({ month: String(month) })
+    const params = new URLSearchParams({ month: String(selectedMonth) })
     if (filters.bu    !== 'all') params.set('bu',    filters.bu)
     if (filters.com   !== 'all') params.set('com',   filters.com)
     if (filters.mod   !== 'all') params.set('mod',   filters.mod)
@@ -69,7 +98,7 @@ export function DailyChart({ filters, month }: { filters: DashboardFilters; mont
       setData(json.days ?? [])
     } catch { /* silent */ }
     setLoading(false)
-  }, [filters, month])
+  }, [filters, selectedMonth])
 
   useEffect(() => {
     setLoading(true)
@@ -83,23 +112,57 @@ export function DailyChart({ filters, month }: { filters: DashboardFilters; mont
       className="rounded-2xl p-5"
       style={{ background: '#fff', border: '1px solid rgba(66,44,118,0.08)', boxShadow: '0 2px 12px rgba(66,44,118,0.06)' }}
     >
-      <div className="mb-5 flex items-start justify-between">
+      {/* Cabeçalho */}
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold" style={{ color: '#414042' }}>Faturamento Diário</h3>
           <p className="text-xs mt-0.5 font-medium" style={{ color: '#9a8fb5' }}>
-            Valor faturado (R$) e processos por dia · mês corrente
+            Valor faturado (R$) e processos por dia
           </p>
         </div>
         {loading && <Loader2 className="w-4 h-4 animate-spin flex-shrink-0 mt-0.5" style={{ color: '#9a8fb5' }} />}
       </div>
 
+      {/* Seletor de mês */}
+      <div className="flex flex-wrap gap-1 mb-4">
+        {MONTH_NAMES.map((name, i) => {
+          const m          = i + 1
+          const available  = m <= currentMonthNum
+          const isSelected = m === selectedMonth
+          return (
+            <button
+              key={m}
+              disabled={!available}
+              onClick={() => available && setSelected(m)}
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all"
+              style={{
+                background: isSelected
+                  ? LILAS
+                  : available
+                  ? 'rgba(66,44,118,0.08)'
+                  : 'rgba(66,44,118,0.03)',
+                color: isSelected
+                  ? '#fff'
+                  : available
+                  ? LILAS
+                  : 'rgba(66,44,118,0.25)',
+                cursor: available ? 'pointer' : 'default',
+                outline: 'none',
+              }}
+            >
+              {name}
+            </button>
+          )
+        })}
+      </div>
+
       {!loading && data.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-xs" style={{ color: '#9a8fb5' }}>
+        <div className="h-56 flex items-center justify-center text-xs" style={{ color: '#9a8fb5' }}>
           Sem dados para o período selecionado
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={248}>
-          <ComposedChart data={data} margin={{ top: 4, right: 48, left: -8, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height={230}>
+          <ComposedChart data={data} margin={{ top: 18, right: 48, left: -8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(66,44,118,0.07)" vertical={false} />
             <XAxis
               dataKey="day"
@@ -124,11 +187,13 @@ export function DailyChart({ filters, month }: { filters: DashboardFilters; mont
             />
             <Tooltip content={<DailyTooltip />} cursor={{ fill: 'rgba(66,44,118,0.04)' }} />
             <Legend
-              wrapperStyle={{ fontSize: '11px', paddingTop: '16px' }}
+              wrapperStyle={{ fontSize: '11px', paddingTop: '14px' }}
               formatter={v => <span style={{ color: '#6b6570', fontWeight: 600 }}>{v}</span>}
             />
-            <Bar yAxisId="fat"  dataKey="faturado"  name="Faturado"   fill={VERDE}   radius={[4, 4, 0, 0]} />
-            <Bar yAxisId="proc" dataKey="processos" name="Processos"  fill={MAGENTA} radius={[4, 4, 0, 0]} opacity={0.75} />
+            <Bar yAxisId="fat" dataKey="faturado" name="Faturado" fill={VERDE} radius={[3, 3, 0, 0]}>
+              <LabelList content={<FatLabel />} />
+            </Bar>
+            <Bar yAxisId="proc" dataKey="processos" name="Processos" fill={MAGENTA} radius={[3, 3, 0, 0]} opacity={0.75} />
           </ComposedChart>
         </ResponsiveContainer>
       )}

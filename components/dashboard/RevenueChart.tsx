@@ -8,6 +8,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
   ResponsiveContainer,
   ComposedChart,
 } from 'recharts'
@@ -80,7 +81,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
       </div>
 
       <ResponsiveContainer width="100%" height={248}>
-        <ComposedChart data={data} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 22, right: 4, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(66,44,118,0.07)" vertical={false} />
           <XAxis
             dataKey="month"
@@ -101,19 +102,22 @@ export function RevenueChart({ data }: RevenueChartProps) {
               <span style={{ color: '#6b6570', fontWeight: 600 }}>{value}</span>
             )}
           />
-          <Bar
-            dataKey="plano"
-            name="Plano"
-            fill={LILAS}
-            opacity={0.18}
-            radius={[4, 4, 0, 0]}
-          />
-          <Bar
-            dataKey="realizado"
-            name="Realizado"
-            fill={VERDE}
-            radius={[4, 4, 0, 0]}
-          />
+          <Bar dataKey="plano" name="Plano" fill={LILAS} opacity={0.18} radius={[4, 4, 0, 0]}>
+            <LabelList
+              dataKey="plano"
+              position="top"
+              formatter={(v) => Number(v) > 0 ? `${v}M` : ''}
+              style={{ fontSize: 9, fill: 'rgba(66,44,118,0.45)', fontWeight: 600 }}
+            />
+          </Bar>
+          <Bar dataKey="realizado" name="Realizado" fill={VERDE} radius={[4, 4, 0, 0]}>
+            <LabelList
+              dataKey="realizado"
+              position="top"
+              formatter={(v) => Number(v) > 0 ? `${v}M` : ''}
+              style={{ fontSize: 9, fill: '#01c07a', fontWeight: 700 }}
+            />
+          </Bar>
           <Line
             type="monotone"
             dataKey="fc"
@@ -123,7 +127,14 @@ export function RevenueChart({ data }: RevenueChartProps) {
             dot={{ fill: MAGENTA, r: 3.5, strokeWidth: 0 }}
             activeDot={{ r: 5, fill: MAGENTA }}
             strokeDasharray="5 3"
-          />
+          >
+            <LabelList
+              dataKey="fc"
+              position="top"
+              formatter={(v) => Number(v) > 0 ? `${v}M` : ''}
+              style={{ fontSize: 9, fill: MAGENTA, fontWeight: 700 }}
+            />
+          </Line>
         </ComposedChart>
       </ResponsiveContainer>
     </div>
