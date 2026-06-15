@@ -275,29 +275,6 @@ async function main() {
     console.log(`${rows.length} NFs → ${newCount} novas, ${updCount} atualizadas`)
   }
 
-  // ── Propaga ActualNF.totNet → BudgetEntry.faturado para clientes não-manuais ──
-  // Mantém faturado manual intacto (isManual=1). Apenas clientes da API são atualizados.
-  console.log('\n⚙️  Atualizando BudgetEntry.faturado a partir de ActualNF…')
-  const ts = new Date().toISOString()
-  const aggrResult = await turso.execute({
-    sql: `UPDATE BudgetEntry
-          SET faturado = (
-            SELECT COALESCE(SUM(a."totNet"), 0)
-            FROM ActualNF a
-            WHERE a."clientId" = BudgetEntry."clientId"
-              AND a."year"     = BudgetEntry."year"
-              AND a."month"    = BudgetEntry."month"
-              AND a."scope"    = 'SAÍDA'
-          ),
-          updatedAt = ?
-          WHERE year = ?
-            AND "clientId" IN (
-              SELECT id FROM Client WHERE isManual = 0 AND isActive = 1
-            )`,
-    args: [ts, new Date().getFullYear()],
-  })
-  console.log(`   BudgetEntry.faturado atualizado: ${aggrResult.rowsAffected} linhas`)
-
   await turso.execute({
     sql: `UPDATE "SyncJob" SET status='DONE', "recordsNew"=?, "recordsUpdated"=?,
           "recordsTotal"=?, "finishedAt"=? WHERE id=?`,

@@ -72,3 +72,5 @@ scripts/diagnose-faturado.cjs
 scripts/fix-modality.cjs
 scripts/verify-import.cjs
 scripts/verify-ytd.cjs
+scripts/analise-faturado.cjs
+scripts/check-excel-cols.cjs

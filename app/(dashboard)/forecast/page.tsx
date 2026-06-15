@@ -56,7 +56,8 @@ async function getMatrixData(): Promise<ClientData[]> {
     }),
   ])
 
-  // Faturado real do Conexos (soma de ActualWeekly por cliente/mês)
+  // Faturado do Conexos (ActualWeekly) — mantido para referência mas não mais
+  // sobrepõe BudgetEntry.faturado. BudgetEntry é a fonte única de faturado.
   const fatMap = new Map<string, number>()
   for (const w of weeklyActuals) {
     const k = `${w.clientId}:${w.month}`
@@ -93,8 +94,9 @@ async function getMatrixData(): Promise<ClientData[]> {
       const b    = budgetMap.get(`${c.id}:${m}`)
       const cnxs = fatMap.get(`${c.id}:${m}`) ?? 0
 
-      // Faturado: prioridade Conexos (ActualWeekly), fallback Excel (BudgetEntry.faturado)
-      const faturado = cnxs > 0 ? cnxs : (b?.faturado ?? 0)
+      // Faturado: BudgetEntry.faturado é a fonte única de verdade.
+      // ActualWeekly (cnxs) é preservado no DB para auditoria mas não sobrepõe o Excel.
+      const faturado = b?.faturado ?? 0
 
       months[m] = {
         plan:          b?.plan ?? 0,
