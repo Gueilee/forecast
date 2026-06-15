@@ -448,6 +448,30 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
     return map
   }, [weeklySnapshots, filteredIds])
 
+  // Totais de snapshot por grupo (groupKey → isoWeek → month → total)
+  const groupSnapshotTotals = useMemo(() => {
+    const result = new Map<string, Map<number, Map<number, number>>>()
+    for (const node of treeNodes) {
+      if (node.type !== 'client') continue
+      if (!filteredIds.has(node.data.id)) continue
+      const clientSnap = snapshotMap.get(node.data.id)
+      if (!clientSnap) continue
+      for (const ak of node.ancestorKeys) {
+        if (!result.has(ak)) result.set(ak, new Map())
+        const grpByWeek = result.get(ak)!
+        clientSnap.forEach((byWeek, month) => {
+          byWeek.forEach((fcVal, isoWeek) => {
+            if (fcVal == null) return
+            if (!grpByWeek.has(isoWeek)) grpByWeek.set(isoWeek, new Map())
+            const byMonth = grpByWeek.get(isoWeek)!
+            byMonth.set(month, (byMonth.get(month) ?? 0) + fcVal)
+          })
+        })
+      }
+    }
+    return result
+  }, [treeNodes, filteredIds, snapshotMap])
+
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev)
@@ -806,11 +830,20 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                             </td>
                           )
                         })
-                        const snapGrp = snapshotWeeks.map((_, wi) => (
-                          <td key={`${m}-grpsnap-${wi}`}
-                              className="px-1.5 py-2 text-right text-xs tabular-nums"
-                              style={{ borderLeft: wi === 0 ? '2px dashed rgba(66,44,118,0.12)' : undefined, background: 'rgba(66,44,118,0.02)' }} />
-                        ))
+                        const snapGrp = snapshotWeeks.map((wk, wi) => {
+                          const grpTotal = groupSnapshotTotals.get(node.key)?.get(wk.isoWeek)?.get(m) ?? 0
+                          return (
+                            <td key={`${m}-grpsnap-${wi}`}
+                                className="px-1.5 py-2 text-right text-xs tabular-nums font-semibold"
+                                style={{
+                                  borderLeft: wi === 0 ? '2px dashed rgba(66,44,118,0.12)' : undefined,
+                                  background: 'rgba(66,44,118,0.02)',
+                                  color: grpTotal > 0 ? LILAS : 'rgba(65,64,66,0.2)',
+                                }}>
+                              {grpTotal > 0 ? fmt(grpTotal) : '—'}
+                            </td>
+                          )
+                        })
                         return [...expCells, ...snapGrp]
                       }
                       // Collapsed: PLANO + FATURADO (passado) ou PLANO + FC (futuro)
