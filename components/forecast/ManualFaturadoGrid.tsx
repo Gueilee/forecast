@@ -134,7 +134,7 @@ export function ManualFaturadoGrid({ clients }: { clients: ManualClient[] }) {
   })
   const grandTotal = colTotals.reduce((a, b) => a + b, 0)
 
-  const COL_TEMPLATE = '1fr 76px repeat(12, minmax(84px,1fr)) 110px 80px'
+  const COL_TEMPLATE = 'minmax(180px,2fr) 76px repeat(12, minmax(84px,1fr)) 110px 80px'
 
   return (
     <div>
