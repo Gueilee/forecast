@@ -137,6 +137,22 @@ const COL_W  = 130 // collapsed: PLANO + FC
 const COL_W2 = 65  // each collapsed sub-col
 const STICKY_W = 272
 
+// ── Colunas acumuladas (fim da tabela) ───────────────────────────────────────
+const ACC_YEAR_COLS = [
+  { key: 'planYear',   label: 'PLANO 2026', w: 88 },
+  { key: 'fcYear',     label: 'FC 2026',    w: 76 },
+  { key: 'mbPlanYear', label: 'MB PLAN',    w: 64 },
+] as const
+
+const ACC_YTD_COLS = [
+  { key: 'planYtd',     label: 'PLANO',     w: 76 },
+  { key: 'fatYtd',      label: 'FATURADO',  w: 76 },
+  { key: 'desvYtd',     label: 'DESVIO',    w: 80 },
+  { key: 'aFaturarYtd', label: 'A FATURAR', w: 76 },
+] as const
+
+const ACC_TOTAL_W = ([...ACC_YEAR_COLS, ...ACC_YTD_COLS] as { w: number }[]).reduce((s, c) => s + c.w, 0)
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(v: number | null | undefined, currency = true): string {
@@ -198,6 +214,49 @@ function sumTotals(clients: ClientData[]): Record<number, MonthTotals> {
     }
   }
   return t
+}
+
+type AccumData = {
+  planYear: number; fcYear: number; mbPlanYear: number
+  planYtd: number; fatYtd: number; desvYtd: number; aFaturarYtd: number
+}
+
+function computeAccum(months: Record<number, MonthEntry>, currentMonth: number): AccumData {
+  let planYear=0, fcYear=0, mbPlanYear=0
+  let planYtd=0, fcYtd=0, fatYtd=0
+  for (let m=1; m<=12; m++) {
+    const md = months[m]
+    if (!md) continue
+    planYear   += md.plan
+    fcYear     += md.fc ?? md.plan
+    mbPlanYear += md.mbPlan ?? 0
+    if (m <= currentMonth) {
+      planYtd += md.plan
+      fcYtd   += md.fc ?? md.plan
+      fatYtd  += md.faturado
+    }
+  }
+  return { planYear, fcYear, mbPlanYear,
+           planYtd, fatYtd, desvYtd: fatYtd - planYtd, aFaturarYtd: fcYtd - fatYtd }
+}
+
+function computeAccumTotals(totals: Record<number, MonthTotals>, currentMonth: number): AccumData {
+  let planYear=0, fcYear=0, mbPlanYear=0
+  let planYtd=0, fcYtd=0, fatYtd=0
+  for (let m=1; m<=12; m++) {
+    const t = totals[m]
+    if (!t) continue
+    planYear   += t.plan
+    fcYear     += t.fc
+    mbPlanYear += t.mbPlan
+    if (m <= currentMonth) {
+      planYtd += t.plan
+      fcYtd   += t.fc
+      fatYtd  += t.faturado
+    }
+  }
+  return { planYear, fcYear, mbPlanYear,
+           planYtd, fatYtd, desvYtd: fatYtd - planYtd, aFaturarYtd: fcYtd - fatYtd }
 }
 
 function buildTree(clients: ClientData[]): TreeNode[] {
@@ -535,7 +594,7 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
   const SNAP_COL_W = 68
   const tableMinWidth = STICKY_W + MONTHS.reduce((s, m) =>
     s + (expandedMonths.has(m) ? EXP_W_TOTAL + snapshotWeeks.length * SNAP_COL_W : COL_W), 0
-  ) + 88  // anual
+  ) + ACC_TOTAL_W
 
   // Options for filter dropdowns
   const opts = useMemo(() => {
@@ -649,7 +708,9 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                 : [<col key={m} style={{ width: `${COL_W2}px` }} />,
                    <col key={`${m}b`} style={{ width: `${COL_W2}px` }} />]
             )}
-            <col style={{ width: '88px' }} />
+            {([...ACC_YEAR_COLS, ...ACC_YTD_COLS] as { key: string; w: number }[]).map(c => (
+              <col key={c.key} style={{ width: `${c.w}px` }} />
+            ))}
           </colgroup>
 
           {/* ── HEADER ─────────────────────────────────────────────────── */}
@@ -690,10 +751,18 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                 ]
               })}
               <th
-                className="text-center py-2.5 text-[11px] font-bold"
-                style={{ background: '#2d1d5c', color: 'rgba(255,255,255,0.5)', borderLeft: '1px solid rgba(255,255,255,0.1)' }}
+                colSpan={ACC_YEAR_COLS.length}
+                className="text-center py-2.5 text-[11px] font-bold tracking-wide"
+                style={{ background: '#1a0f3c', color: 'rgba(255,255,255,0.55)', borderLeft: '1px solid rgba(255,255,255,0.1)' }}
               >
-                ANUAL
+                CONSOLIDADO
+              </th>
+              <th
+                colSpan={ACC_YTD_COLS.length}
+                className="text-center py-2.5 text-[11px] font-bold tracking-wide"
+                style={{ background: '#2d1d5c', color: 'rgba(255,255,255,0.55)', borderLeft: '1px solid rgba(255,255,255,0.15)' }}
+              >
+                ACUMULADO — {MONTH_NAMES[currentMonth - 1].toUpperCase()}
               </th>
             </tr>
 
@@ -748,7 +817,24 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                   <th key={`${m}b`} className="py-1.5 px-1.5 text-[9px] font-bold uppercase text-right" style={{ color: m <= currentMonth ? '#00b870' : LILAS }}>{m <= currentMonth ? 'Faturado' : 'FC'}</th>,
                 ]
               })}
-              <th className="py-1.5 px-1.5 text-[9px] font-semibold uppercase text-right border-l" style={{ color: '#9a8fb5', borderColor: 'rgba(66,44,118,0.15)' }}>Plano</th>
+              {([...ACC_YEAR_COLS] as { key: string; label: string }[]).map((c, i) => (
+                <th key={c.key}
+                  className="py-1.5 px-1.5 text-[9px] font-bold uppercase tracking-wide text-right"
+                  style={{
+                    color: '#9a8fb5',
+                    borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.18)' : undefined,
+                    background: 'rgba(26,15,60,0.04)',
+                  }}>{c.label}</th>
+              ))}
+              {([...ACC_YTD_COLS] as { key: string; label: string }[]).map((c, i) => (
+                <th key={c.key}
+                  className="py-1.5 px-1.5 text-[9px] font-bold uppercase tracking-wide text-right"
+                  style={{
+                    color: '#9a8fb5',
+                    borderLeft: i === 0 ? '2px solid rgba(66,44,118,0.2)' : undefined,
+                    background: 'rgba(45,29,92,0.04)',
+                  }}>{c.label}</th>
+              ))}
             </tr>
           </thead>
 
@@ -870,10 +956,33 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                       ]
                     })}
 
-                    {/* Anual */}
-                    <td className="px-2 py-2 text-right tabular-nums font-bold text-[11px] border-l" style={{ color: LILAS, borderColor: 'rgba(66,44,118,0.12)' }}>
-                      {fmt(annualPlan)}
-                    </td>
+                    {/* Acumulados */}
+                    {(() => {
+                      const a = computeAccumTotals(totals, currentMonth)
+                      return ([...ACC_YEAR_COLS, ...ACC_YTD_COLS] as { key: keyof AccumData; label: string; w: number }[]).map((col, i) => {
+                        const val = a[col.key]
+                        const isYtd = i >= ACC_YEAR_COLS.length
+                        const isDesvio = col.key === 'desvYtd'
+                        const isAfat   = col.key === 'aFaturarYtd'
+                        const color = isDesvio
+                          ? (val > 0 ? '#00b870' : val < 0 ? MAGENTA : 'rgba(65,64,66,0.2)')
+                          : isAfat
+                            ? (val > 0 ? GRAFITE : val < 0 ? MAGENTA : 'rgba(65,64,66,0.2)')
+                            : isYtd ? (val > 0 ? GRAFITE : 'rgba(65,64,66,0.2)') : (val > 0 ? LILAS : 'rgba(65,64,66,0.2)')
+                        return (
+                          <td key={col.key}
+                            className="px-1.5 py-2 text-right tabular-nums font-bold text-[11px]"
+                            style={{
+                              color,
+                              borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.12)' : i === ACC_YEAR_COLS.length ? '2px solid rgba(66,44,118,0.15)' : undefined,
+                              background: isYtd ? 'rgba(45,29,92,0.03)' : 'rgba(26,15,60,0.02)',
+                            }}
+                          >
+                            {val !== 0 ? fmt(val) : '—'}
+                          </td>
+                        )
+                      })
+                    })()}
                   </tr>
                 )
               }
@@ -1079,10 +1188,33 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                     ]
                   })}
 
-                  {/* Anual */}
-                  <td className="px-2 py-1.5 text-right tabular-nums font-bold text-[11px] border-l" style={{ color: LILAS, borderColor: 'rgba(66,44,118,0.12)' }}>
-                    {fmt(annualPlan)}
-                  </td>
+                  {/* Acumulados */}
+                  {(() => {
+                    const a = computeAccum(c.months, currentMonth)
+                    return ([...ACC_YEAR_COLS, ...ACC_YTD_COLS] as { key: keyof AccumData; label: string; w: number }[]).map((col, i) => {
+                      const val = a[col.key]
+                      const isYtd    = i >= ACC_YEAR_COLS.length
+                      const isDesvio = col.key === 'desvYtd'
+                      const isAfat   = col.key === 'aFaturarYtd'
+                      const color = isDesvio
+                        ? (val > 0 ? '#00b870' : val < 0 ? MAGENTA : 'rgba(65,64,66,0.2)')
+                        : isAfat
+                          ? (val > 0 ? GRAFITE : val < 0 ? MAGENTA : 'rgba(65,64,66,0.2)')
+                          : isYtd ? (val > 0 ? GRAFITE : 'rgba(65,64,66,0.2)') : (val > 0 ? LILAS : 'rgba(65,64,66,0.2)')
+                      return (
+                        <td key={col.key}
+                          className="px-1.5 py-1.5 text-right tabular-nums text-[11px]"
+                          style={{
+                            color,
+                            borderLeft: i === 0 ? '1px solid rgba(66,44,118,0.08)' : i === ACC_YEAR_COLS.length ? '2px solid rgba(66,44,118,0.1)' : undefined,
+                            background: isYtd ? 'rgba(45,29,92,0.02)' : 'rgba(26,15,60,0.01)',
+                          }}
+                        >
+                          {val !== 0 ? fmt(val) : '—'}
+                        </td>
+                      )
+                    })
+                  })()}
                 </tr>
               )
             })}
@@ -1140,9 +1272,32 @@ export function ForecastMatrix({ clients, year, currentMonth, weeklySnapshots }:
                   <td key={`${m}b`} className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums" style={{ color: m <= currentMonth ? (t.faturado > 0 ? VERDE : 'rgba(255,255,255,0.3)') : 'rgba(255,255,255,0.7)' }}>{fmt(m <= currentMonth ? t.faturado : t.fc)}</td>,
                 ]
               })}
-              <td className="px-2 py-2.5 text-right font-extrabold text-[12px] tabular-nums text-white border-l" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-                {fmt(MONTHS.reduce((s, m) => s + (grandTotals[m]?.plan ?? 0), 0))}
-              </td>
+              {(() => {
+                const a = computeAccumTotals(grandTotals, currentMonth)
+                return ([...ACC_YEAR_COLS, ...ACC_YTD_COLS] as { key: keyof AccumData; label: string; w: number }[]).map((col, i) => {
+                  const val = a[col.key]
+                  const isYtd    = i >= ACC_YEAR_COLS.length
+                  const isDesvio = col.key === 'desvYtd'
+                  const isAfat   = col.key === 'aFaturarYtd'
+                  const color = isDesvio
+                    ? (val > 0 ? VERDE : val < 0 ? '#ff9090' : 'rgba(255,255,255,0.25)')
+                    : isAfat
+                      ? (val > 0 ? 'rgba(255,255,255,0.85)' : '#ff9090')
+                      : isYtd ? (val > 0 ? VERDE : 'rgba(255,255,255,0.25)') : 'rgba(255,255,255,0.9)'
+                  return (
+                    <td key={col.key}
+                      className="px-1.5 py-2.5 text-right font-bold text-[11px] tabular-nums"
+                      style={{
+                        color,
+                        borderLeft: i === 0 ? '1px solid rgba(255,255,255,0.12)' : i === ACC_YEAR_COLS.length ? '2px solid rgba(255,255,255,0.2)' : undefined,
+                        background: isYtd ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.04)',
+                      }}
+                    >
+                      {val !== 0 ? fmt(val) : '—'}
+                    </td>
+                  )
+                })
+              })()}
             </tr>
           </tfoot>
         </table>
