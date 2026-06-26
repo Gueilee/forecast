@@ -10,12 +10,12 @@ const CURRENT_MONTH = new Date().getMonth() + 1
 
 const BU_ENTITIES = ['VCI', 'ARM - GRV', 'ARM - ITV', 'ARM - NVG', 'TRP']
 
-async function getDashboardData() {
+async function getDashboardData(activeClientIds: string[]) {
   const [budgetTotals, faturadoAgg, lastSync, monthlyBudget] = await Promise.all([
-    db.budgetEntry.aggregate({ where: { year: YEAR, client: { isActive: true } }, _sum: { plan: true, fcMonth: true } }),
-    db.budgetEntry.aggregate({ where: { year: YEAR, client: { isActive: true } }, _sum: { faturado: true } }),
+    db.budgetEntry.aggregate({ where: { year: YEAR, clientId: { in: activeClientIds } }, _sum: { plan: true, fcMonth: true } }),
+    db.budgetEntry.aggregate({ where: { year: YEAR, clientId: { in: activeClientIds } }, _sum: { faturado: true } }),
     db.syncJob.findFirst({ where: { status: 'DONE' }, orderBy: { finishedAt: 'desc' } }),
-    db.budgetEntry.groupBy({ by: ['month'], where: { year: YEAR, client: { isActive: true } }, _sum: { plan: true, fcMonth: true, faturado: true }, orderBy: { month: 'asc' } }),
+    db.budgetEntry.groupBy({ by: ['month'], where: { year: YEAR, clientId: { in: activeClientIds } }, _sum: { plan: true, fcMonth: true, faturado: true }, orderBy: { month: 'asc' } }),
   ])
 
   const planTotal      = budgetTotals._sum.plan ?? 0
@@ -37,11 +37,12 @@ async function getDashboardData() {
   return { planTotal, fcTotal, faturadoYtd, atingimentoPct, mbPct: 0, chartData, lastSync: lastSync?.finishedAt ?? null }
 }
 
-async function getBuData(): Promise<BuRowData[]> {
+async function getBuData(activeClients: { id: string; entity: string | null }[]): Promise<BuRowData[]> {
   return Promise.all(
     BU_ENTITIES.map(async (entity) => {
+      const entityIds = activeClients.filter(c => c.entity === entity).map(c => c.id)
       const agg = await db.budgetEntry.aggregate({
-        where: { year: YEAR, client: { entity, isActive: true } },
+        where: { year: YEAR, clientId: { in: entityIds } },
         _sum: { plan: true, fcMonth: true, faturado: true },
       })
       return {
@@ -57,14 +58,17 @@ async function getBuData(): Promise<BuRowData[]> {
 export default async function DashboardPage() {
   await getServerSession(authOptions)
 
-  const [data, clients, buData] = await Promise.all([
-    getDashboardData(),
-    db.client.findMany({
-      where: { isActive: true },
-      select: { id: true, entity: true, commercialType: true, modality: true, accountManager: true, nameReduced: true },
-      orderBy: { nameReduced: 'asc' },
-    }),
-    getBuData(),
+  const clients = await db.client.findMany({
+    where: { isActive: true },
+    select: { id: true, entity: true, commercialType: true, modality: true, accountManager: true, nameReduced: true },
+    orderBy: { nameReduced: 'asc' },
+  })
+
+  const activeClientIds = clients.map(c => c.id)
+
+  const [data, buData] = await Promise.all([
+    getDashboardData(activeClientIds),
+    getBuData(clients),
   ])
 
   return (
