@@ -23,7 +23,7 @@ async function getPresentationData(): Promise<PresentationData> {
     clients,
   ] = await Promise.all([
     db.budgetEntry.findMany({
-      where: { year: YEAR },
+      where: { year: YEAR, client: { isActive: true } },
       select: {
         clientId: true, month: true, plan: true, fcMonth: true,
         client: { select: { entity: true } },

@@ -25,7 +25,7 @@ async function getMatrixData(): Promise<ClientData[]> {
       orderBy: { sortOrder: 'asc' },
     }),
     db.budgetEntry.findMany({
-      where: { year: YEAR },
+      where: { year: YEAR, client: { isActive: true } },
       select: {
         clientId: true,
         month: true,
@@ -143,7 +143,7 @@ async function maybeCreateSnapshot(year: number) {
   if (existing) return
 
   const budgets = await db.budgetEntry.findMany({
-    where: { year },
+    where: { year, client: { isActive: true } },
     select: { clientId: true, month: true, fcMonth: true },
   })
 

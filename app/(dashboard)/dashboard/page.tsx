@@ -12,10 +12,10 @@ const BU_ENTITIES = ['VCI', 'ARM - GRV', 'ARM - ITV', 'ARM - NVG', 'TRP']
 
 async function getDashboardData() {
   const [budgetTotals, faturadoAgg, lastSync, monthlyBudget] = await Promise.all([
-    db.budgetEntry.aggregate({ where: { year: YEAR }, _sum: { plan: true, fcMonth: true } }),
-    db.budgetEntry.aggregate({ where: { year: YEAR }, _sum: { faturado: true } }),
+    db.budgetEntry.aggregate({ where: { year: YEAR, client: { isActive: true } }, _sum: { plan: true, fcMonth: true } }),
+    db.budgetEntry.aggregate({ where: { year: YEAR, client: { isActive: true } }, _sum: { faturado: true } }),
     db.syncJob.findFirst({ where: { status: 'DONE' }, orderBy: { finishedAt: 'desc' } }),
-    db.budgetEntry.groupBy({ by: ['month'], where: { year: YEAR }, _sum: { plan: true, fcMonth: true, faturado: true }, orderBy: { month: 'asc' } }),
+    db.budgetEntry.groupBy({ by: ['month'], where: { year: YEAR, client: { isActive: true } }, _sum: { plan: true, fcMonth: true, faturado: true }, orderBy: { month: 'asc' } }),
   ])
 
   const planTotal      = budgetTotals._sum.plan ?? 0
@@ -41,7 +41,7 @@ async function getBuData(): Promise<BuRowData[]> {
   return Promise.all(
     BU_ENTITIES.map(async (entity) => {
       const agg = await db.budgetEntry.aggregate({
-        where: { year: YEAR, client: { entity } },
+        where: { year: YEAR, client: { entity, isActive: true } },
         _sum: { plan: true, fcMonth: true, faturado: true },
       })
       return {

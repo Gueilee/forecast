@@ -16,9 +16,9 @@ export async function getTvData(): Promise<TvData> {
     clientActuals,
     clients,
   ] = await Promise.all([
-    // Plano/FC por cliente+mês
+    // Plano/FC por cliente+mês (apenas clientes ativos)
     db.budgetEntry.findMany({
-      where: { year: YEAR },
+      where: { year: YEAR, client: { isActive: true } },
       select: {
         clientId: true, month: true, plan: true, fcMonth: true,
         client: { select: { entity: true } },
